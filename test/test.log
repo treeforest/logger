@@ -1,0 +1,3 @@
+[2020-06-07 22:55:10.358][main.go:8][main.main][DEBUG] Debug 这是一条测试的日志。
+[2020-06-07 22:55:10.423][main.go:9][main.main][INFO] Info 这是一条测试的日志。
+[2020-06-07 22:55:10.423][main.go:10][main.main][ERROR] 这是一条测试的日志。
