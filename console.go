@@ -8,48 +8,52 @@ import (
 
 // 往终端打印日志
 
-// ConsoleLogger 终端日志打印结构体
-type ConsoleLogger struct {
+// consoleLogger 终端日志打印结构体
+type consoleLogger struct {
 	level Level
 }
 
-func NewConsoleLogger(level Level) *ConsoleLogger {
-	return &ConsoleLogger{
+func NewConsoleLogger(level Level) Logger {
+	return &consoleLogger{
 		level: level,
 	}
 }
 
 // Debug 方法
-func (c *ConsoleLogger) Debug(format string, args ...interface{}) {
+func (c *consoleLogger) Debug(format string, args ...interface{}) {
 	c.log(DebugLevel, format, args...)
 }
 
 // Info 方法
-func (c *ConsoleLogger) Info(format string, args ...interface{}) {
+func (c *consoleLogger) Info(format string, args ...interface{}) {
 	c.log(InfoLevel, format, args...)
 }
 
 // Warn 方法
-func (c *ConsoleLogger) Warn(format string, args ...interface{}) {
+func (c *consoleLogger) Warn(format string, args ...interface{}) {
 	c.log(WarningLevel, format, args...)
 }
 
 // Error 方法
-func (c *ConsoleLogger) Error(format string, args ...interface{}) {
+func (c *consoleLogger) Error(format string, args ...interface{}) {
 	c.log(ErrorLevel, format, args...)
 }
 
 // Fatal 方法
-func (c *ConsoleLogger) Fatal(format string, args ...interface{}) {
+func (c *consoleLogger) Fatal(format string, args ...interface{}) {
 	c.log(FatalLevel, format, args...)
 }
 
 // 设置日志级别
-func (c *ConsoleLogger) SetLevel(level Level) {
+func (c *consoleLogger) SetLevel(level Level) {
 	c.level = level
 }
 
-func (c *ConsoleLogger) log(level Level, format string, args ...interface{}) {
+func (c *consoleLogger) Close() {
+	//终端才做的标准输出不用关闭
+}
+
+func (c *consoleLogger) log(level Level, format string, args ...interface{}) {
 	if c.level > level {
 		return
 	}

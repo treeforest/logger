@@ -2,11 +2,16 @@ package main
 
 import "github.com/treeforest/logger"
 
-func main() {
-	//l := logger.NewFileLogger(logger.DebugLevel, "./", "test.log")
-	l := logger.NewConsoleLogger(logger.DebugLevel)
+var GlobalLogger logger.Logger
 
-	l.Debug("%s 这是一条测试的日志。","Debug")
-	l.Info("%s 这是一条测试的日志。","Info")
-	l.Error("这是一条测试的日志。")
+func main() {
+	GlobalLogger = logger.NewFileLogger(1 * 1024 * 1024, logger.DebugLevel, "./", "test.log")
+	//GlobalLogger = logger.NewConsoleLogger(logger.DebugLevel)
+	defer GlobalLogger.Close()
+
+	for i :=0; i < 1024 * 20; i++ {
+		GlobalLogger.Debug("%s 这是一条测试的日志。","Debug")
+		GlobalLogger.Info("%s 这是一条测试的日志。","Info")
+		GlobalLogger.Error("这是一条测试的日志。")
+	}
 }

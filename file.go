@@ -10,7 +10,7 @@ import (
 // 往文件里面写日志
 
 // 文件日志结构体信息
-type FileLogger struct {
+type fileLogger struct {
 	level Level			// 日志级别门槛，低于该级别的日志将不打印
 	fileName string
 	filePath string
@@ -19,18 +19,54 @@ type FileLogger struct {
 	maxSize int64
 }
 
-func NewFileLogger(level Level, fileName, filePath string) *FileLogger {
-	fileLogger := &FileLogger{
+func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger {
+	fileLogger := &fileLogger{
 		level: level,
 		fileName: fileName,
 		filePath: filePath,
-		maxSize: DefaultFileSize,
+		maxSize: maxSize,
 	}
 	fileLogger.initFile()
 	return fileLogger
 }
 
-func (f *FileLogger) initFile() {
+// Debug 方法
+func (f *fileLogger) Debug(format string, args ...interface{}) {
+	f.log(DebugLevel, format, args...)
+}
+
+// Info 方法
+func (f *fileLogger) Info(format string, args ...interface{}) {
+	f.log(InfoLevel, format, args...)
+}
+
+// Warn 方法
+func (f *fileLogger) Warn(format string, args ...interface{}) {
+	f.log(WarningLevel, format, args...)
+}
+
+// Error 方法
+func (f *fileLogger) Error(format string, args ...interface{}) {
+	f.log(ErrorLevel, format, args...)
+}
+
+// Fatal 方法
+func (f *fileLogger) Fatal(format string, args ...interface{}) {
+	f.log(FatalLevel, format, args...)
+}
+
+// 设置日志级别
+func (f *fileLogger) SetLevel(level Level) {
+	f.level = level
+}
+
+// 关闭文件句柄
+func (f *fileLogger) Close() {
+	f.file.Close()
+	f.errFile.Close()
+}
+
+func (f *fileLogger) initFile() {
 	logName := path.Join(f.filePath, f.fileName)
 
 	// open file
@@ -49,7 +85,7 @@ func (f *FileLogger) initFile() {
 	f.errFile = errFile
 }
 
-func (f *FileLogger) log(level Level, format string, args ...interface{}) {
+func (f *fileLogger) log(level Level, format string, args ...interface{}) {
 	if f.level > level {
 		return
 	}
@@ -74,13 +110,13 @@ func (f *FileLogger) log(level Level, format string, args ...interface{}) {
 	}
 }
 
-func (f *FileLogger) checkSplit(file *os.File) bool {
+func (f *fileLogger) checkSplit(file *os.File) bool {
 	fileInfo, _ := file.Stat()
 	fileSize := fileInfo.Size()
 	return fileSize >= f.maxSize
 }
 
-func (f *FileLogger) splitLogFile(file *os.File) *os.File{
+func (f *fileLogger) splitLogFile(file *os.File) *os.File{
 	fileName := file.Name()
 	// 切分文件
 	backupName := fmt.Sprintf("%s_%v.back", fileName, time.Now().Unix())
@@ -94,38 +130,4 @@ func (f *FileLogger) splitLogFile(file *os.File) *os.File{
 		panic(fmt.Errorf("open logfile(%s) failed. err:%v", fileName, err))
 	}
 	return newFile
-}
-
-// Debug 方法
-func (f *FileLogger) Debug(format string, args ...interface{}) {
-	f.log(DebugLevel, format, args...)
-}
-
-// Info 方法
-func (f *FileLogger) Info(format string, args ...interface{}) {
-	f.log(InfoLevel, format, args...)
-}
-
-// Warn 方法
-func (f *FileLogger) Warn(format string, args ...interface{}) {
-	f.log(WarningLevel, format, args...)
-}
-
-// Error 方法
-func (f *FileLogger) Error(format string, args ...interface{}) {
-	f.log(ErrorLevel, format, args...)
-}
-
-// Fatal 方法
-func (f *FileLogger) Fatal(format string, args ...interface{}) {
-	f.log(FatalLevel, format, args...)
-}
-
-// 设置日志级别
-func (f *FileLogger) SetLevel(level Level) {
-	f.level = level
-}
-
-func (f *FileLogger) SetMaxSize(maxSize int64) {
-	f.maxSize = maxSize
 }
