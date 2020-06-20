@@ -5,18 +5,21 @@ import (
 	"path"
 	"fmt"
 	"time"
+	"sync"
 	)
 
 // 往文件里面写日志
 
 // 文件日志结构体信息
 type fileLogger struct {
-	level Level			// 日志级别门槛，低于该级别的日志将不打印
-	fileName string
-	filePath string
-	file *os.File
-	errFile *os.File
-	maxSize int64
+	level      Level      // 日志级别门槛，低于该级别的日志将不打印
+	fileName   string     // 日志文件名
+	filePath   string     // 日志文件路径
+	file       *os.File   // 存放一般的日志文件路径
+	errFile    *os.File   // 存放error日志的文件
+	maxSize    int64      // 日志文件的最大大小
+	mu         sync.Mutex // 确保多协程读写文件，防止文件内容混乱，做到协程安全
+	debugClose bool       //是否打印调试debug信息
 }
 
 func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger {
@@ -25,34 +28,60 @@ func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger
 		fileName: fileName,
 		filePath: filePath,
 		maxSize: maxSize,
+		debugClose:false,
 	}
 	fileLogger.initFile()
+
 	return fileLogger
 }
 
 // Debug 方法
-func (f *fileLogger) Debug(format string, args ...interface{}) {
+func (f *fileLogger) Debug(args ...interface{}) {
+	f.log(DebugLevel, "%v", args...)
+}
+func (f *fileLogger) Debugf(format string, args ...interface{}) {
 	f.log(DebugLevel, format, args...)
 }
 
 // Info 方法
-func (f *fileLogger) Info(format string, args ...interface{}) {
+func (f *fileLogger) Info(args ...interface{}) {
+	f.log(InfoLevel, "%v", args...)
+}
+func (f *fileLogger) Infof(format string, args ...interface{}) {
 	f.log(InfoLevel, format, args...)
 }
 
 // Warn 方法
-func (f *fileLogger) Warn(format string, args ...interface{}) {
-	f.log(WarningLevel, format, args...)
+func (f *fileLogger) Warn(args ...interface{}) {
+	f.log(WarnLevel, "%v", args...)
+}
+func (f *fileLogger) Warnf(format string, args ...interface{}) {
+	f.log(WarnLevel, format, args...)
 }
 
 // Error 方法
-func (f *fileLogger) Error(format string, args ...interface{}) {
+func (f *fileLogger) Error(args ...interface{}) {
+	f.log(ErrorLevel, "%v", args...)
+}
+func (f *fileLogger) Errorf(format string, args ...interface{}) {
 	f.log(ErrorLevel, format, args...)
 }
 
 // Fatal 方法
-func (f *fileLogger) Fatal(format string, args ...interface{}) {
+func (f *fileLogger) Fatal(args ...interface{}) {
+	f.log(FatalLevel, "%v", args...)
+}
+func (f *fileLogger) Fatalf(format string, args ...interface{}) {
 	f.log(FatalLevel, format, args...)
+}
+
+// 是否开启debug时日志输出
+func (f *fileLogger) OpenDebug() {
+	f.debugClose = false
+}
+
+func (f *fileLogger) CloseDebug() {
+	f.debugClose = true
 }
 
 // 设置日志级别
@@ -90,6 +119,9 @@ func (f *fileLogger) log(level Level, format string, args ...interface{}) {
 		return
 	}
 
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	// 日志格式:[时间][文件:行号][函数名][日志级别] 日志信息
 	msg := fmt.Sprintf(format, args...)
 	now := time.Now().Format("2006-01-02 15:04:05.000")
@@ -99,7 +131,13 @@ func (f *fileLogger) log(level Level, format string, args ...interface{}) {
 	if f.checkSplit(f.file) {
 		f.file = f.splitLogFile(f.file)
 	}
+
+	// 写入文件
 	fmt.Fprintln(f.file, logMsg)
+
+	if !f.debugClose {
+		fmt.Println(logMsg)
+	}
 
 	// 如果是Error或者Fatal级别的日志还要记录到 f.errFile
 	if level >= ErrorLevel {

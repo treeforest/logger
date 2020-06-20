@@ -20,29 +20,47 @@ func NewConsoleLogger(level Level) Logger {
 }
 
 // Debug 方法
-func (c *consoleLogger) Debug(format string, args ...interface{}) {
+func (c *consoleLogger) Debug(args ...interface{}) {
+	c.log(DebugLevel, "%v", args...)
+}
+func (c *consoleLogger) Debugf(format string, args ...interface{}) {
 	c.log(DebugLevel, format, args...)
 }
 
 // Info 方法
-func (c *consoleLogger) Info(format string, args ...interface{}) {
+func (c *consoleLogger) Info(args ...interface{}) {
+	c.log(InfoLevel, "%v", args...)
+}
+func (c *consoleLogger) Infof(format string, args ...interface{}) {
 	c.log(InfoLevel, format, args...)
 }
 
 // Warn 方法
-func (c *consoleLogger) Warn(format string, args ...interface{}) {
-	c.log(WarningLevel, format, args...)
+func (c *consoleLogger) Warn(args ...interface{}) {
+	c.log(WarnLevel, "%v", args...)
+}
+func (c *consoleLogger) Warnf(format string, args ...interface{}) {
+	c.log(WarnLevel, format, args...)
 }
 
 // Error 方法
-func (c *consoleLogger) Error(format string, args ...interface{}) {
+func (c *consoleLogger) Error(args ...interface{}) {
+	c.log(ErrorLevel, "%v", args...)
+}
+func (c *consoleLogger) Errorf(format string, args ...interface{}) {
 	c.log(ErrorLevel, format, args...)
 }
 
 // Fatal 方法
-func (c *consoleLogger) Fatal(format string, args ...interface{}) {
+func (c *consoleLogger) Fatal(args ...interface{}) {
+	c.log(FatalLevel, "%v", args...)
+}
+func (c *consoleLogger) Fatalf(format string, args ...interface{}) {
 	c.log(FatalLevel, format, args...)
 }
+
+func (c *consoleLogger) OpenDebug() {}
+func (c *consoleLogger) CloseDebug() {}
 
 // 设置日志级别
 func (c *consoleLogger) SetLevel(level Level) {
@@ -50,7 +68,7 @@ func (c *consoleLogger) SetLevel(level Level) {
 }
 
 func (c *consoleLogger) Close() {
-	//终端才做的标准输出不用关闭
+	//终端下的标准输出不用关闭
 }
 
 func (c *consoleLogger) log(level Level, format string, args ...interface{}) {

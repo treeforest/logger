@@ -5,7 +5,8 @@ import (
 	)
 
 func TestConstLevel(t *testing.T) {
+
 	t.Logf("%v", DebugLevel)
 	t.Logf("%v", InfoLevel)
-	t.Logf("%v", WarningLevel)
+	t.Logf("%v", WarnLevel)
 }

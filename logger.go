@@ -2,6 +2,8 @@
 // 日志库文件
 package logger
 
+var CLog Logger = NewConsoleLogger(FatalLevel)
+
 // Level 是一个uint16的自定义类型，代表日志级别
 type Level uint16
 
@@ -9,34 +11,56 @@ type Level uint16
 const (
 	DebugLevel Level= iota
 	InfoLevel
-	WarningLevel
+	WarnLevel
 	ErrorLevel
 	FatalLevel
 )
 
+//日志级别对应的显示字符串
+var levels = []string{
+	"DEBUG",
+	"INFO",
+	"WARN",
+	"ERROR",
+	"FATAL",
+}
+
 func getLevelStr(level Level) string {
 	switch level {
 	case DebugLevel:
-		return "DEBUG"
+		return levels[0]
 	case InfoLevel:
-		return "INFO"
-	case WarningLevel:
-		return "WARN"
+		return levels[1]
+	case WarnLevel:
+		return levels[2]
 	case ErrorLevel:
-		return "ERROR"
+		return levels[3]
 	case FatalLevel:
-		return "FATAL"
+		return levels[4]
 	default:
 		return "DEBUG"
 	}
 }
 
 type Logger interface {
-	Debug(format string, args ...interface{})
-	Info(format string, args ...interface{})
-	Warn(format string, args ...interface{})
-	Error(format string, args ...interface{})
-	Fatal(format string, args ...interface{})
+	Debug(args ...interface{})
+	Debugf(format string, args ...interface{})
+
+	Info(args ...interface{})
+	Infof(format string, args ...interface{})
+
+	Warn(args ...interface{})
+	Warnf(format string, args ...interface{})
+
+	Error(args ...interface{})
+	Errorf(format string, args ...interface{})
+
+	Fatal(args ...interface{})
+	Fatalf(format string, args ...interface{})
+
+	OpenDebug()
+	CloseDebug()
+
 	SetLevel(level Level)
 	Close()
 }
