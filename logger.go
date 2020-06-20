@@ -1,13 +1,68 @@
-
 // 日志库文件
-package logger
+package log
+
+var defaultLogger Logger
+
+func SetFileLogger() {
+	defaultLogger = NewFileLogger(1024*30, DebugLevel, "", "./")
+	defaultLogger.(*fileLogger).skip = 4
+}
+
+func init() {
+	defaultLogger = NewConsoleLogger(DebugLevel)
+	defaultLogger.(*consoleLogger).skip = 4
+}
+
+func Debug(args ...interface{}) {
+	defaultLogger.Debug(args)
+}
+
+func Debugf(format string, args ...interface{}) {
+	defaultLogger.Debugf(format, args)
+}
+
+func Info(args ...interface{}) {
+	defaultLogger.Info(args)
+}
+
+func Infof(format string, args ...interface{}) {
+	defaultLogger.Infof(format, args)
+}
+
+func Warn(args ...interface{}) {
+	defaultLogger.Warn(args)
+}
+
+func Warnf(format string, args ...interface{}) {
+	defaultLogger.Warnf(format, args)
+}
+
+func Error(args ...interface{}) {
+	defaultLogger.Error(args)
+}
+
+func Errorf(format string, args ...interface{}) {
+	defaultLogger.Errorf(format, args)
+}
+
+func Fatal(args ...interface{}) {
+	defaultLogger.Fatal(args)
+}
+
+func Fatalf(format string, args ...interface{}) {
+	defaultLogger.Fatalf(format, args)
+}
+
+func SetLevel(level Level) {
+	defaultLogger.SetLevel(level)
+}
 
 // Level 是一个uint16的自定义类型，代表日志级别
 type Level uint16
 
 // 定义的具体的日志级别常量
 const (
-	DebugLevel Level= iota
+	DebugLevel Level = iota
 	InfoLevel
 	WarnLevel
 	ErrorLevel

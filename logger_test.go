@@ -1,8 +1,8 @@
-package logger
+package log
 
 import (
 	"testing"
-	)
+)
 
 func TestConstLevel(t *testing.T) {
 
