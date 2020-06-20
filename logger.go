@@ -2,8 +2,6 @@
 // 日志库文件
 package logger
 
-var CLog Logger = NewConsoleLogger(FatalLevel)
-
 // Level 是一个uint16的自定义类型，代表日志级别
 type Level uint16
 
