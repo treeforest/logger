@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"github.com/treeforest/logger/color"
 	"time"
+	"sync"
 )
 
 // 往终端打印日志
 
 // consoleLogger 终端日志打印结构体
 type consoleLogger struct {
+	mu         sync.Mutex
 	level      Level
 	skip       int
 	debugColor *color.Color // Debug 终端打印颜色
@@ -87,6 +89,9 @@ func (c *consoleLogger) log(level Level, format string, args ...interface{}) {
 	if c.level > level {
 		return
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	// 日志格式:[时间][文件:行号][函数名][日志级别] 日志信息
 	msg := fmt.Sprintf(format, args...)
