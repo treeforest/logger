@@ -7,7 +7,7 @@ import (
 	"path"
 	"sync"
 	"time"
-)
+	)
 
 // 往文件里面写日志
 
@@ -28,6 +28,12 @@ type fileLogger struct {
 	warnColor   *color.Color // Warn 终端打印颜色
 	errorColor  *color.Color // Error 终端打印颜色
 	fatalColor  *color.Color // Fatal 终端打印颜色
+	cacheChan   chan cache  // 缓存管道
+}
+
+type cache struct {
+	msg   string
+	level Level
 }
 
 func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger {
@@ -43,6 +49,7 @@ func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger
 		warnColor:  color.New(color.FgHiYellow),
 		errorColor: color.New(color.FgRed),
 		fatalColor: color.New(color.FgRed),
+		cacheChan:  make(chan cache, 10),
 	}
 
 	if fileName == "" {
@@ -51,6 +58,9 @@ func NewFileLogger(maxSize int64, level Level, fileName, filePath string) Logger
 	}
 
 	fileLogger.initFile()
+
+	go fileLogger.run()
+
 	return fileLogger
 }
 
@@ -110,6 +120,10 @@ func (f *fileLogger) SetLevel(level Level) {
 
 // 关闭文件句柄
 func (f *fileLogger) Close() {
+	// 延迟关闭日志文件，防止协程中还有数据没有写入到文件
+	time.Sleep(time.Second * 2)
+
+	close(f.cacheChan)
 	f.file.Close()
 	f.errFile.Close()
 }
@@ -147,35 +161,49 @@ func (f *fileLogger) log(level Level, format string, args ...interface{}) {
 	fileName, _, line := getCallerInfo(f.skip)
 	logMsg := fmt.Sprintf("[%s][%s:%d][%s] %s", now, fileName, line, getLevelStr(level), msg)
 
-	if f.checkSplit(f.file) {
-		f.file = f.splitLogFile(f.file)
-	}
+	f.cacheChan <- cache{msg:logMsg,level: level}
+}
 
-	// 写入文件
-	fmt.Fprintln(f.file, logMsg)
+func (f *fileLogger) run() {
 
-	// 终端打印
-	if !f.debugClose {
-		switch level {
-		case DebugLevel:
-			f.debugColor.Println(logMsg)
-		case InfoLevel:
-			f.infoColor.Println(logMsg)
-		case WarnLevel:
-			f.warnColor.Println(logMsg)
-		case ErrorLevel:
-			f.errorColor.Println(logMsg)
-		case FatalLevel:
-			f.fatalColor.Println(logMsg)
+	for {
+		select {
+		case c, ok := <- f.cacheChan:
+			if !ok {
+				return
+			}
+
+			if f.checkSplit(f.file) {
+				f.file = f.splitLogFile(f.file)
+			}
+
+			// 写入文件
+			fmt.Fprintln(f.file, c.msg)
+
+			// 终端打印
+			if !f.debugClose {
+				switch c.level {
+				case DebugLevel:
+					f.debugColor.Println(c.msg)
+				case InfoLevel:
+					f.infoColor.Println(c.msg)
+				case WarnLevel:
+					f.warnColor.Println(c.msg)
+				case ErrorLevel:
+					f.errorColor.Println(c.msg)
+				case FatalLevel:
+					f.fatalColor.Println(c.msg)
+				}
+			}
+
+			// 如果是Error或者Fatal级别的日志还要记录到 f.errFile
+			if c.level >= ErrorLevel {
+				if f.checkSplit(f.errFile) {
+					f.errFile = f.splitLogFile(f.errFile)
+				}
+				fmt.Fprintln(f.errFile, c.msg)
+			}
 		}
-	}
-
-	// 如果是Error或者Fatal级别的日志还要记录到 f.errFile
-	if level >= ErrorLevel {
-		if f.checkSplit(f.errFile) {
-			f.errFile = f.splitLogFile(f.errFile)
-		}
-		fmt.Fprintln(f.errFile, logMsg)
 	}
 }
 

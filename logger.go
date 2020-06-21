@@ -4,7 +4,7 @@ package log
 var defaultLogger Logger
 
 func SetFileLogger() {
-	defaultLogger = NewFileLogger(1024*30, DebugLevel, "", "./")
+	defaultLogger = NewFileLogger(1024 * 1024 * 30, DebugLevel, "", "./")
 	defaultLogger.(*fileLogger).skip = 4
 }
 
