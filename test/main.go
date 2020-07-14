@@ -8,25 +8,13 @@ import (
 
 func main() {
 
-	//go func() {
-	//	for i := 0; i < 20; i++ {
-	//		log.Debug("----这是一条测试的日志----")
-	//		log.Info("----这是一条测试的日志----")
-	//		log.Warn("----这是一条测试的日志----")
-	//		log.Error("----这是一条测试的日志----")
-	//		log.Fatal("----这是一条测试的日志----")
-	//	}
-	//}()
-
-	log.SetFileLogger()
-
 	now := time.Now()
-	for i := 0; i < 2000; i++ {
+	for i := 0; i < 20000; i++ {
 		log.Debug("----这是一条测试的日志----")
 		log.Info("----这是一条测试的日志----")
 		log.Warn("----这是一条测试的日志----")
 		log.Error("----这是一条测试的日志----")
-		log.Fatal("----这是一条测试的日志----")
+		//log.Fatal("----这是一条测试的日志----")
 	}
 
 	sub := time.Now().Sub(now).Seconds()
