@@ -51,7 +51,7 @@ func newLogger(depth uint32) logger {
 	l := &loggerHandle{
 		depth:       depth,
 		logItemPool: sync.Pool{New: newLogItem},
-		logChan:     make(chan *logItem, 1000),
+		logChan:     make(chan *logItem, max_chan_size),
 		stopChan:    make(chan struct{}),
 	}
 
@@ -194,11 +194,11 @@ func (h *loggerHandle) logWriter() {
 		h.closeWait.Done()
 	}()
 
-	// 检测文件大小的定时器
+	// 检测文件大小的定时器，如果文件超过设定的阈值，则进行切分文件
 	flushTicker := time.NewTicker(default_flush_tick)
 	defer flushTicker.Stop()
 
-	// 定时切分文件的定时器
+	// 定时切分文件的定时器，区别每天的文件
 	switchTimer := time.NewTimer(getFirstSwitchTime())
 	defer switchTimer.Stop()
 
@@ -248,16 +248,19 @@ func (h *loggerHandle) logWriter() {
 	}
 }
 
+// 输出到控制台
 func (h *loggerHandle) outputConsole(level LogLevel, s *string) {
 	stdLogger(level).Println(*s)
 }
 
+// 输出到日志文件
 func (h *loggerHandle) outputFile(s *string) {
 	if h.pFile != nil {
 		fmt.Fprintln(h.pFile, *s)
 	}
 }
 
+// 初始化配置
 func (h *loggerHandle) onInit(path string, level LogLevel, size int64, jsonFile bool) {
 	setupFunc := func() {
 		h.path = rectifyPath(path)
@@ -282,12 +285,13 @@ func (h *loggerHandle) onInit(path string, level LogLevel, size int64, jsonFile 
 		h.onlyStdWriterCancel()
 
 		h.closeWait.Add(1)
-		go log.Writer()
+		go h.logWriter()
 	}
 
 	h.initOnce.Do(setupFunc)
 }
 
+// 记录
 func (h *loggerHandle) log(level LogLevel, content string) {
 	if h.level > level {
 		return
@@ -307,10 +311,11 @@ func (h *loggerHandle) log(level LogLevel, content string) {
 	h.logChan <- item
 }
 
+// 解包操作
 func (h *loggerHandle) unpack(item *logItem) (toStd string, toFile string) {
-	now := time.Now().Format("2006-01-02 15:04:05")
+	now := time.Now().Format("2006-01-02 15:04:05.000")
 
-	toStd = fmt.Sprintf("[%s][%s][%s:%d]: %s", levels[item.level], now, item.fileName, item.line, item.content)
+	toStd = fmt.Sprintf("[%s][%s:%d][%s]: %s", now, item.fileName, item.line, getLevelStr(item.level), item.content)
 	if h.jsonFile {
 		toFile = fmt.Sprintf("{\"LEVEL\":\"%s\",\"Time\":\"%v\",\"File\":\"%s\",\"Line\":\"%s\",\"LocalFunc\":\"%s\",\"CONTENT\":%s}",
 			item.level, now, item.fileName, item.line, item.localFunc, item.content)

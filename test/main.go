@@ -8,8 +8,9 @@ import (
 
 func main() {
 
+	log.OnInit("./", log.LOGDEBUG, 1024*1024*30, false)
 	now := time.Now()
-	for i := 0; i < 20000; i++ {
+	for i := 0; i < 200; i++ {
 		log.Debug("----这是一条测试的日志----")
 		log.Info("----这是一条测试的日志----")
 		log.Warn("----这是一条测试的日志----")
@@ -19,10 +20,9 @@ func main() {
 
 	sub := time.Now().Sub(now).Seconds()
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(time.Second * 2)
 
 	fmt.Println(sub)
-
 
 	//for i :=0; i < 1024 * 20; i++ {
 	//	GlobalLogger.Debug("%s 这是一条测试的日志。","Debug")
