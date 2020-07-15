@@ -417,5 +417,5 @@ func (h *loggerHandle) newFile(fileName string) (pFile *os.File, pathName string
 		return nil, "", err
 	}
 
-	return f, pathName,nil
+	return f, pathName, nil
 }
