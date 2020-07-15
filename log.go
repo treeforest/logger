@@ -131,5 +131,4 @@ type logger interface {
 	fatal(a ...interface{})
 
 	setLogLevel(level LogLevel)
-	close()
 }

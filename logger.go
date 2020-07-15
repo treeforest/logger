@@ -116,24 +116,6 @@ func (h *loggerHandle) setLogLevel(level LogLevel) {
 	h.level = level
 }
 
-// 清理资源
-func (h *loggerHandle) close() {
-	h.closeWait.Wait()
-
-	if h.stopChan != nil {
-		close(h.stopChan)
-	}
-
-	if h.logChan != nil {
-		close(h.logChan)
-	}
-
-	if h.pFile != nil {
-		h.pFile.Close()
-		h.pFile = nil
-	}
-}
-
 // 启动控制台日志文件打印
 func (h *loggerHandle) startStdLogger() {
 	if h.logChan == nil {
@@ -188,11 +170,11 @@ func (h *loggerHandle) onlyStdWriter(ctx context.Context) {
 // 同时开启控制台与文件的日志记录
 func (h *loggerHandle) logWriter() {
 	defer func() {
-		if h.logChan != nil {
-			close(h.logChan)
-		}
 		if h.pFile != nil {
 			h.pFile.Close()
+		}
+		if h.pErrFile != nil {
+			h.pErrFile.Close()
 		}
 		if err := recover(); err != nil {
 			log.Printf("logWriter() panic: %v\n", err)
