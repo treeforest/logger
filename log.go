@@ -2,6 +2,7 @@
 package log
 
 import (
+	"fmt"
 	"github.com/treeforest/logger/color"
 	"time"
 )
@@ -12,6 +13,7 @@ const max_chan_size uint32 = 1000
 // 检查文件过大的频率
 const default_flush_tick = 10 * time.Second
 
+// 默认全局日志记录句柄
 var defaultLogger logger = newLogger(4)
 
 //OnInit 初始化log配置
@@ -26,7 +28,7 @@ func Debug(a ...interface{}) {
 }
 
 func Debugf(format string, a ...interface{}) {
-	defaultLogger.debugf(format, a...)
+	defaultLogger.debug(fmt.Sprintf(format, a...))
 }
 
 func Info(a ...interface{}) {
@@ -34,7 +36,7 @@ func Info(a ...interface{}) {
 }
 
 func Infof(format string, a ...interface{}) {
-	defaultLogger.infof(format, a...)
+	defaultLogger.info(fmt.Sprintf(format, a...))
 }
 
 func Warn(a ...interface{}) {
@@ -42,7 +44,7 @@ func Warn(a ...interface{}) {
 }
 
 func Warnf(format string, a ...interface{}) {
-	defaultLogger.warnf(format, a...)
+	defaultLogger.warn(fmt.Sprintf(format, a...))
 }
 
 func Error(a ...interface{}) {
@@ -50,7 +52,7 @@ func Error(a ...interface{}) {
 }
 
 func Errorf(format string, a ...interface{}) {
-	defaultLogger.errorf(format, a...)
+	defaultLogger.error(fmt.Sprintf(format, a))
 }
 
 func Fatal(a ...interface{}) {
@@ -58,7 +60,7 @@ func Fatal(a ...interface{}) {
 }
 
 func Fatalf(format string, a ...interface{}) {
-	defaultLogger.fatalf(format, a...)
+	defaultLogger.fatal(fmt.Sprintf(format, a...))
 }
 
 func SetLogLevel(level LogLevel) {
@@ -123,19 +125,10 @@ func getLevelStr(level LogLevel) string {
 
 type logger interface {
 	debug(a ...interface{})
-	debugf(format string, a ...interface{})
-
 	info(a ...interface{})
-	infof(format string, a ...interface{})
-
 	warn(a ...interface{})
-	warnf(format string, a ...interface{})
-
 	error(a ...interface{})
-	errorf(format string, a ...interface{})
-
 	fatal(a ...interface{})
-	fatalf(format string, a ...interface{})
 
 	setLogLevel(level LogLevel)
 	close()

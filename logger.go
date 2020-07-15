@@ -18,7 +18,10 @@ type loggerHandle struct {
 	level               LogLevel       // 日志级别门槛，低于该级别的日志将不打印
 	path                string         // 日志文件路径
 	pathName            string         // 带有完整路径的文件名
-	pFile               *os.File       // 存放一般的日志文件路径
+	pFile               *os.File       // 存放一般的日志文件句柄
+	errPath             string         // 错误日志文件路径
+	errPathName         string         // 带有完整路径的错误文件名
+	pErrFile            *os.File       // 存放错误的日志句柄
 	maxFileSize         int64          // 日志文件的最大大小
 	initOnce            sync.Once      // 防止日志多次初始化
 	jsonFile            bool           // 输出到文件的日志文件格式是否为json格式
@@ -39,7 +42,6 @@ type logItem struct {
 	fileName  string // 文件名
 	line      int    // 文件行号
 	localFunc string // 本地函数名
-	close     bool   // 如果调用fatal级别，该值将设为true，便于协程的退出
 }
 
 // 初始化配置
@@ -60,53 +62,53 @@ func newLogger(depth uint32) logger {
 	return l
 }
 
-// Debug 方法
+// debug 方法
 func (h *loggerHandle) debug(a ...interface{}) {
 	h.log(LOGDEBUG, fmt.Sprint(a...))
 }
 
-func (h *loggerHandle) debugf(format string, a ...interface{}) {
-	h.log(LOGDEBUG, fmt.Sprintf(format, a...))
-}
-
-// Info 方法
+// info 方法
 func (h *loggerHandle) info(a ...interface{}) {
 	h.log(LOGINFO, fmt.Sprint(a...))
 }
 
-func (h *loggerHandle) infof(format string, a ...interface{}) {
-	h.log(LOGINFO, fmt.Sprintf(format, a...))
-}
-
-// Warn 方法
+// warn 方法
 func (h *loggerHandle) warn(a ...interface{}) {
 	h.log(LOGWARN, fmt.Sprint(a...))
 }
 
-func (h *loggerHandle) warnf(format string, a ...interface{}) {
-	h.log(LOGWARN, fmt.Sprintf(format, a...))
-}
-
-// Error 方法
+// error 方法
 func (h *loggerHandle) error(a ...interface{}) {
 	h.log(LOGERROR, fmt.Sprint(a...))
 }
 
-func (h *loggerHandle) errorf(format string, a ...interface{}) {
-	h.log(LOGERROR, fmt.Sprintf(format, a...))
-}
-
-// Fatal 方法
+// fatal 方法
 func (h *loggerHandle) fatal(a ...interface{}) {
 	h.log(LOGFATAL, fmt.Sprint(a...))
+
+	h.closeWait.Wait()
 	log.Println("!!! log call fatal exit !!!\n")
 	os.Exit(1)
 }
 
-func (h *loggerHandle) fatalf(format string, a ...interface{}) {
-	h.log(LOGFATAL, fmt.Sprintf(format, a...))
-	log.Println("!!! log call fatalf exit !!!\n")
-	os.Exit(1)
+// 记录
+func (h *loggerHandle) log(level LogLevel, content string) {
+	if h.level > level {
+		return
+	}
+
+	// 日志格式:[时间][日志级别][文件:行号]: 日志信息
+	item := h.getLogItem()
+	item.level = level
+	item.content = content
+	item.fileName, item.localFunc, item.line = getCallerInfo(h.depth)
+
+	select {
+	case <-h.stopChan:
+		log.Println("stop...")
+		return
+	case h.logChan <- item:
+	}
 }
 
 // 设置日志级别
@@ -144,6 +146,7 @@ func (h *loggerHandle) startStdLogger() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h.onlyStdWriterCancel = cancel
+	h.closeWait.Add(1)
 	go h.onlyStdWriter(ctx)
 }
 
@@ -164,7 +167,7 @@ func (h *loggerHandle) onlyStdWriter(ctx context.Context) {
 			if ok {
 				toStdStr, _ := h.unpack(item)
 				h.outputConsole(item.level, &toStdStr)
-				if item.close {
+				if item.level == LOGFATAL {
 					close(h.stopChan)
 					return
 				}
@@ -185,6 +188,9 @@ func (h *loggerHandle) onlyStdWriter(ctx context.Context) {
 // 同时开启控制台与文件的日志记录
 func (h *loggerHandle) logWriter() {
 	defer func() {
+		if h.logChan != nil {
+			close(h.logChan)
+		}
 		if h.pFile != nil {
 			h.pFile.Close()
 		}
@@ -208,8 +214,11 @@ func (h *loggerHandle) logWriter() {
 			if ok {
 				toStdStr, toFileStr := h.unpack(item)
 				h.outputFile(&toFileStr)
+				if item.level >= LOGERROR {
+					h.outputErrFile(&toStdStr)
+				}
 				h.outputConsole(item.level, &toStdStr)
-				if item.close {
+				if item.level == LOGFATAL {
 					close(h.stopChan)
 					return
 				}
@@ -217,6 +226,9 @@ func (h *loggerHandle) logWriter() {
 				for item := range h.logChan {
 					toStdStr, toFileStr := h.unpack(item)
 					h.outputFile(&toFileStr)
+					if item.level >= LOGERROR {
+						h.outputErrFile(&toStdStr)
+					}
 					h.outputConsole(item.level, &toStdStr)
 				}
 
@@ -225,12 +237,23 @@ func (h *loggerHandle) logWriter() {
 			h.putLogItem(item)
 
 		case <-flushTicker.C:
-			if fileSize(h.pathName) >= h.maxFileSize {
+			logFileSize := fileSize(h.pathName)
+			logErrFileSize := fileSize(h.errPathName)
+			if logFileSize >= h.maxFileSize || logErrFileSize >= h.maxFileSize {
 				h.fileMutex.Lock()
-				if err := h.switchFile(); err != nil {
-					log.Printf("log switch failed: %v\n", err)
-					h.fileMutex.Unlock()
-					panic(err)
+				if logFileSize >= h.maxFileSize {
+					if err := h.switchFile(); err != nil {
+						log.Printf("log switch failed: %v\n", err)
+						h.fileMutex.Unlock()
+						panic(err)
+					}
+				}
+				if logErrFileSize >= h.maxFileSize {
+					if err := h.switchErrFile(); err != nil {
+						log.Printf("log switch failed: %v\n", err)
+						h.fileMutex.Unlock()
+						panic(err)
+					}
 				}
 				h.fileMutex.Unlock()
 			}
@@ -238,6 +261,11 @@ func (h *loggerHandle) logWriter() {
 		case <-switchTimer.C:
 			h.fileMutex.Lock()
 			if err := h.switchFile(); err != nil {
+				log.Printf("log switch failed: %v\n", err)
+				h.fileMutex.Unlock()
+				panic(err)
+			}
+			if err := h.switchErrFile(); err != nil {
 				log.Printf("log switch failed: %v\n", err)
 				h.fileMutex.Unlock()
 				panic(err)
@@ -260,13 +288,21 @@ func (h *loggerHandle) outputFile(s *string) {
 	}
 }
 
+func (h *loggerHandle) outputErrFile(s *string) {
+	if h.pErrFile != nil {
+		fmt.Fprintln(h.pErrFile, *s)
+	}
+}
+
 // 初始化配置
 func (h *loggerHandle) onInit(path string, level LogLevel, size int64, jsonFile bool) {
 	setupFunc := func() {
 		h.path = rectifyPath(path)
+		h.errPath = h.path
 		h.level = level
-		h.depth = 4
+		// h.depth = 4 // 默认为4
 		h.pFile = nil
+		h.pErrFile = nil
 		h.maxFileSize = size
 		h.jsonFile = jsonFile
 		h.localIP = localIP()
@@ -282,6 +318,11 @@ func (h *loggerHandle) onInit(path string, level LogLevel, size int64, jsonFile 
 			panic(err)
 		}
 
+		if err := h.switchErrFile(); err != nil {
+			log.Printf("switchErrFile() panic: %v\n", err)
+			panic(err)
+		}
+
 		h.onlyStdWriterCancel()
 
 		h.closeWait.Add(1)
@@ -291,31 +332,11 @@ func (h *loggerHandle) onInit(path string, level LogLevel, size int64, jsonFile 
 	h.initOnce.Do(setupFunc)
 }
 
-// 记录
-func (h *loggerHandle) log(level LogLevel, content string) {
-	if h.level > level {
-		return
-	}
-
-	// 日志格式:[日志级别][时间][文件:行号]: 日志信息
-	item := h.getLogItem()
-	item.level = level
-	item.content = content
-	item.fileName, item.localFunc, item.line = getCallerInfo(h.depth)
-	if h.level == LOGFATAL {
-		item.close = true
-	} else {
-		item.close = false
-	}
-
-	h.logChan <- item
-}
-
 // 解包操作
 func (h *loggerHandle) unpack(item *logItem) (toStd string, toFile string) {
 	now := time.Now().Format("2006-01-02 15:04:05.000")
 
-	toStd = fmt.Sprintf("[%s][%s:%d][%s]: %s", now, item.fileName, item.line, getLevelStr(item.level), item.content)
+	toStd = fmt.Sprintf("[%s][%s][%s:%d]: %s", now, getLevelStr(item.level), item.fileName, item.line, item.content)
 	if h.jsonFile {
 		toFile = fmt.Sprintf("{\"LEVEL\":\"%s\",\"Time\":\"%v\",\"File\":\"%s\",\"Line\":\"%s\",\"LocalFunc\":\"%s\",\"CONTENT\":%s}",
 			item.level, now, item.fileName, item.line, item.localFunc, item.content)
@@ -360,29 +381,59 @@ func (h *loggerHandle) switchFile() error {
 	}
 
 	// 创建或者打开已存在文件
-	file, err := h.newFile(fileName)
+	file, pathName, err := h.newFile(fileName)
 	if err != nil {
 		return err
 	}
+
 	h.pFile = file
+	h.pathName = pathName
+
+	return nil
+}
+
+// 切换错误记录文件
+func (h *loggerHandle) switchErrFile() error {
+	fileName := h.getFileName() + ".error"
+
+	// 确认目录存在
+	if err := os.MkdirAll(h.errPath, os.ModeDir|os.ModePerm); err != nil {
+		return err
+	}
+
+	// 先关闭旧文件再切换
+	if h.pErrFile != nil {
+		if err := h.pErrFile.Close(); err != nil {
+			return err
+		}
+		h.pErrFile = nil
+	}
+
+	// 创建或者打开已存在文件
+	file, pathName, err := h.newFile(fileName)
+	if err != nil {
+		return err
+	}
+
+	h.pErrFile = file
+	h.errPathName = pathName
 
 	return nil
 }
 
 // 新建文件，返回描叙符
-func (h *loggerHandle) newFile(fileName string) (*os.File, error) {
+func (h *loggerHandle) newFile(fileName string) (pFile *os.File, pathName string, err error) {
 
-	h.pathName = fileName + ".log"
+	pathName = fileName + ".log"
 
-	for fileID := 2; fileExists(h.pathName); fileID++ {
-		h.pathName = fileName + fmt.Sprintf(".%02d.log", fileID)
+	for fileID := 2; fileExists(pathName); fileID++ {
+		pathName = fileName + fmt.Sprintf(".%02d.log", fileID)
 	}
 
-	f, err := os.OpenFile(h.pathName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	f, err := os.OpenFile(pathName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	//log.Printf("newFile pathname %s \n", pathname)
-	return f, nil
+	return f, pathName,nil
 }
