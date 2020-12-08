@@ -2,6 +2,7 @@ package log
 
 import (
 	"fmt"
+	"github.com/treeforest/logger/color"
 	"net"
 	"os"
 	"path"
@@ -12,6 +13,51 @@ import (
 /*
  * 存放公共的工具函数
  */
+
+
+// 日志打印颜色
+var logLevelColors []*color.Color = []*color.Color{
+	color.New(color.FgBlue),
+	color.New(color.FgGreen),
+	color.New(color.FgHiYellow),
+	color.New(color.FgRed),
+	color.New(color.FgRed),
+}
+
+func stdLogger(level logLevel) *color.Color {
+	switch level {
+	case DebugLevel, InfoLevel, WarnLevel, ErrorLevel, FatalLevel:
+		return logLevelColors[level]
+	default:
+		return logLevelColors[DebugLevel]
+	}
+}
+
+// 日志级别对应的显示字符串
+var logLevelStrs = []string{
+	"DEBUG",
+	"INFO",
+	"WARN",
+	"ERROR",
+	"FATAL",
+}
+
+func getLogLevelStr(level logLevel) string {
+	switch level {
+	case DebugLevel:
+		return logLevelStrs[DebugLevel]
+	case InfoLevel:
+		return logLevelStrs[InfoLevel]
+	case WarnLevel:
+		return logLevelStrs[WarnLevel]
+	case ErrorLevel:
+		return logLevelStrs[ErrorLevel]
+	case FatalLevel:
+		return logLevelStrs[FatalLevel]
+	default:
+		return logLevelStrs[DebugLevel]
+	}
+}
 
 func getFirstSwitchTime() time.Duration {
 	// 到明天凌晨间隔多长时间
