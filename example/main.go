@@ -18,9 +18,22 @@ func TestGetLogger() {
 }
 
 func TestDefaultLog() {
-	//log.SetConfig(
-	//	log.WithLogLevel(log.InfoLevel),
-	//	log.WithFilePath("."))
+	defer log.Stop()
+
+	log.SetConfig(
+		log.WithLogLevel(log.InfoLevel),
+		log.WithFilePath("."))
+
+	for i := 0; i < 100; i++ {
+		log.Debug("Debug Message")
+		log.Info("Info Message")
+		log.Warn("Warn Message")
+		log.Error("Error Message")
+	}
+}
+
+func TestWriteSuccess() {
+	defer log.Stop()
 
 	for i := 0; i < 10; i++ {
 		log.Debug("Debug Message")
@@ -28,11 +41,10 @@ func TestDefaultLog() {
 		log.Warn("Warn Message")
 		log.Error("Error Message")
 	}
-	log.Fatal("Fatal Message...")
 }
-
 
 func main() {
 	//TestGetLogger()
 	TestDefaultLog()
+	//TestWriteSuccess()
 }

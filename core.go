@@ -5,11 +5,13 @@
 package log
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +23,12 @@ import (
 //	fatal(a ...interface{})
 //}
 
+var (
+	RunState int32 = 0
+	StoppingState int32 = 1
+	StoppedState int32 = 2
+)
+
 // 文件日志结构体信息
 type loggerCore struct {
 	config          *Config       // 配置
@@ -28,12 +36,15 @@ type loggerCore struct {
 	errPathName     string        // 带有完整路径的错误文件名
 	pFile           *os.File      // 存放一般的日志文件句柄
 	pErrFile        *os.File      // 存放错误的日志句柄
+	fileWriter      *bufio.Writer // 日志文件缓冲写
+	errFileWriter   *bufio.Writer // 错误日志文件缓冲写
 	initOnce        sync.Once     // 防止日志多次初始化
 	depth           uint32        // 调用函数的层级，默认为4
 	localIP         string        // 本地ip
 	cancelStdWriter func()        // 只有控制台写时的上下文cancel
-	stopping        chan struct{} // 停止中
-	stopped         chan struct{} // 已停止
+	state           int32         // 运行状态
+	stopped         chan bool     // 停止
+	fatalStop       chan bool     // fatal日志导致的stop
 	pool            sync.Pool     // 临时对象池
 	items           chan *logItem // 日志打印缓冲池
 }
@@ -64,8 +75,9 @@ func newLoggerCore(depth uint32, opts ...Option) *loggerCore {
 		depth:           depth,
 		pool:            sync.Pool{New: newLogItem},
 		items:           make(chan *logItem, config.maxChannelSize),
-		stopping:        make(chan struct{}),
-		stopped:         make(chan struct{}),
+		state:           RunState,
+		stopped:         make(chan bool),
+		fatalStop:       make(chan bool),
 		cancelStdWriter: func() {},
 	}
 
@@ -147,14 +159,14 @@ func (lc *loggerCore) error(a ...interface{}) {
 func (lc *loggerCore) fatal(a ...interface{}) {
 	lc.log(FatalLevel, fmt.Sprint(a...))
 
-	<-lc.stopped
-	log.Println("!!! log call fatal exit !!!")
+	<-lc.fatalStop
+	//log.Println("!!! log call fatal exit !!!")
 	os.Exit(1)
 }
 
 // 记录
 func (lc *loggerCore) log(level logLevel, content string) {
-	if lc.config.level > level {
+	if lc.config.level > level && lc.state != RunState {
 		return
 	}
 
@@ -174,14 +186,19 @@ func (lc *loggerCore) setLogLevel(level logLevel) {
 
 // 仅开启控制台进行日志打印
 func (lc *loggerCore) stdWriter(ctx context.Context) {
-	stopped := false
+	isFatalLog := false
 
 	defer func() {
 		if err := recover(); err != nil {
 			log.Printf("stdWriter() panic: %v\n", err)
 		}
-		if stopped {
-			lc.stopped <- struct{}{}
+		if isFatalLog {
+			lc.fatalStop <- true
+		} else if atomic.LoadInt32(&lc.state) == StoppingState {
+			//log.Println("stdWriter stopped.")
+			lc.stopped <- true
+		} else {
+			// log.Println("cancel()")
 		}
 		//log.Println("exit...")
 	}()
@@ -193,22 +210,17 @@ func (lc *loggerCore) stdWriter(ctx context.Context) {
 			return
 
 		case item, ok := <-lc.items:
-			if ok {
-				toStdStr, _ := lc.unpack(item)
-				lc.outputConsole(item.level, &toStdStr)
-				if item.level == FatalLevel {
-					// 控制台输出是顺序性的，直接返回即可。若有缓存的日志，直接抛弃。
-					stopped = true
-					return
-				}
-			} else {
-				// 将缓存的日志执行结束
-				for item := range lc.items {
-					toStdStr, _ := lc.unpack(item)
-					lc.outputConsole(item.level, &toStdStr)
-				}
+			if !ok {
+				//log.Println("channel has closed.")
+				return
+			}
 
-				panic("channel has closed!!!")
+			toStdStr, _ := lc.unpack(item)
+			lc.outputConsole(item.level, &toStdStr)
+
+			if item.level == FatalLevel {
+				isFatalLog = true// 控制台输出是顺序性的，直接返回即可。若有缓存的日志，直接抛弃。
+				return
 			}
 			lc.put(item)
 		}
@@ -223,13 +235,12 @@ func (lc *loggerCore) stdAndFileWriter() {
 	// 定时切分文件的定时器，区别每天的文件
 	switchTimer := time.NewTimer(getFirstSwitchTime())
 
+	isFatalLog := false
+
 	defer func() {
-		if lc.pFile != nil {
-			lc.pFile.Close()
-		}
-		if lc.pErrFile != nil {
-			lc.pErrFile.Close()
-		}
+		lc.fileWriter.Flush()
+		lc.errFileWriter.Flush()
+
 		if err := recover(); err != nil {
 			log.Printf("stdAndFileWriter() panic: %v\n", err)
 		}
@@ -237,7 +248,12 @@ func (lc *loggerCore) stdAndFileWriter() {
 		flushTicker.Stop()
 		switchTimer.Stop()
 
-		lc.stopped <- struct{}{}
+		if isFatalLog {
+			lc.fatalStop <- true
+		} else if atomic.LoadInt32(&lc.state) == StoppingState {
+			//log.Println("stdAndFileWriter stopped.")
+			lc.stopped <- true
+		}
 	}()
 
 	lock := &sync.Mutex{}
@@ -245,31 +261,26 @@ func (lc *loggerCore) stdAndFileWriter() {
 	for {
 		select {
 		case item, ok := <-lc.items:
-			if ok {
-				toStdStr, toFileStr := lc.unpack(item)
-				lc.outputFile(&toFileStr)
-				if item.level >= ErrorLevel {
-					lc.outputErrFile(&toStdStr)
-				}
-				lc.outputConsole(item.level, &toStdStr)
-				if item.level == FatalLevel {
-					return
-				}
-			} else {
-				for item := range lc.items {
-					toStdStr, toFileStr := lc.unpack(item)
-					lc.outputFile(&toFileStr)
-					if item.level >= ErrorLevel {
-						lc.outputErrFile(&toStdStr)
-					}
-					lc.outputConsole(item.level, &toStdStr)
-				}
+			if !ok {
+				//log.Println("channel has closed.")
+				return
+			}
 
-				panic("channel has closed!!!")
+			toStdStr, toFileStr := lc.unpack(item)
+			lc.outputConsole(item.level, &toStdStr)
+			lc.outputFile(&toFileStr)
+			if item.level >= ErrorLevel {
+				lc.outputErrFile(&toStdStr)
+			}
+
+			if item.level == FatalLevel {
+				isFatalLog = true
+				return
 			}
 			lc.put(item)
 
 		case <-flushTicker.C:
+			// 定时检查日志文件大小，进行文件切分
 			logFileSize := fileSize(lc.pathName)
 			logErrFileSize := fileSize(lc.errPathName)
 			if logFileSize >= lc.config.singleFileSize || logErrFileSize >= lc.config.singleFileSize {
@@ -292,6 +303,7 @@ func (lc *loggerCore) stdAndFileWriter() {
 			}
 
 		case <-switchTimer.C:
+			// 对每天产生的日志文件切分
 			lock.Lock()
 			if err := lc.switchFile(); err != nil {
 				log.Printf("log switch failed: %v\n", err)
@@ -309,6 +321,36 @@ func (lc *loggerCore) stdAndFileWriter() {
 	}
 }
 
+func (lc *loggerCore) stop() {
+	//log.Println("stop")
+	//defer log.Println("exit")
+
+	if atomic.LoadInt32(&lc.state) == StoppedState {
+		return
+	}
+
+	// 设置state为StoppingState，限制畸形儿写入
+	atomic.StoreInt32(&lc.state, StoppingState)
+
+	// 关闭通道
+	close(lc.items)
+
+	// 等待通道中的数据被读取完毕。缓存通道只有读取完数据才能判断通道已经关闭，即返回ok==false
+	<-lc.stopped
+
+	if lc.pFile != nil {
+		lc.pFile.Close()
+		lc.pFile = nil
+	}
+
+	if lc.pErrFile != nil {
+		lc.pErrFile.Close()
+		lc.pErrFile = nil
+	}
+
+	atomic.SwapInt32(&lc.state, StoppedState)
+}
+
 // 输出到控制台
 func (lc *loggerCore) outputConsole(level logLevel, s *string) {
 	stdLogger(level).Println(*s)
@@ -317,13 +359,13 @@ func (lc *loggerCore) outputConsole(level logLevel, s *string) {
 // 输出到日志文件
 func (lc *loggerCore) outputFile(s *string) {
 	if lc.pFile != nil {
-		fmt.Fprintln(lc.pFile, *s)
+		fmt.Fprintln(lc.fileWriter, *s)
 	}
 }
 
 func (lc *loggerCore) outputErrFile(s *string) {
 	if lc.pErrFile != nil {
-		fmt.Fprintln(lc.pErrFile, *s)
+		fmt.Fprintln(lc.errFileWriter, *s)
 	}
 }
 
@@ -396,6 +438,7 @@ func (lc *loggerCore) switchFile() error {
 
 	lc.pFile = file
 	lc.pathName = pathName
+	lc.fileWriter = bufio.NewWriter(file)
 
 	return nil
 }
@@ -425,6 +468,7 @@ func (lc *loggerCore) switchErrFile() error {
 
 	lc.pErrFile = file
 	lc.errPathName = pathName
+	lc.errFileWriter = bufio.NewWriter(file)
 
 	return nil
 }

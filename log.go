@@ -52,6 +52,10 @@ func SetConfig(opts ...Option) {
 	defaultLogger.SetConfig(opts...)
 }
 
+func Stop() {
+	defaultLogger.Stop()
+}
+
 // logLevel 是一个uint16的自定义类型，代表日志级别
 type logLevel uint32
 
@@ -77,6 +81,7 @@ type Logger interface {
 	Fatalf(format string, a ...interface{})
 
 	SetConfig(opts ...Option)
+	Stop()
 }
 
 var loggers = make(map[string]Logger)
@@ -97,4 +102,10 @@ func GetLogger(module string, opts ...Option) Logger {
 	l := newLogger(append(opts, WithModule(module))...)
 	loggers[module] = l
 	return l
+}
+
+func StopAll() {
+	for _, l := range loggers {
+		l.Stop()
+	}
 }

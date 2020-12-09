@@ -1,6 +1,8 @@
 package log
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type logger struct {
 	core *loggerCore
@@ -54,4 +56,8 @@ func (l *logger) Fatalf(format string, a ...interface{}) {
 
 func (l *logger) SetConfig(opts ...Option) {
 	l.core.setConfig(opts...)
+}
+
+func (l *logger) Stop() {
+	l.core.stop()
 }
