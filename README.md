@@ -2,7 +2,7 @@
 
 Go 轻量级日志库
 
-## 功能
+## 功能特性
 
 * 控制日志打印级别，区分不用环境下的打印
 * 异步打印日志
@@ -14,23 +14,42 @@ Go 轻量级日志库
 * 调用log.Stop()优雅退出
 * 缓存写机制，保证日志文件的完整性
 
-## 使用
-~~~
-    defer log.Stop()
+## 使用方法
 
-	log.SetConfig(
-		log.WithLogLevel(log.InfoLevel),
-		log.WithFilePath("."))
+**直接使用**
 
-    log.Debug("Debug Message")
-    log.Info("Info Message")
-    log.Warn("Warn Message")
-    log.Error("Error Message")
-    log.Fatal("Fatal Message")
-    
-    log.Debugf("%s, "Debug Message")
-    log.Infof("%s, "Info Message")
-    log.Warnf("%s, "Warn Message")
-    log.Errorf("%s, "Error Message")
-    log.Fatalf("%s, "Fatal Message")
-~~~
+```
+defer log.Stop()
+
+log.SetConfig(
+    log.WithLogLevel(log.InfoLevel),
+    log.WithFilePath("."))
+
+log.Debug("Debug Message")
+log.Info("Info Message")
+log.Warn("Warn Message")
+log.Error("Error Message")
+log.Fatal("Fatal Message")
+
+log.Debugf("%s", Debug Message")
+log.Infof("%s", Info Message")
+log.Warnf("%s", Warn Message")
+log.Errorf("%s", Error Message")
+log.Fatalf("%s", Fatal Message")
+```
+
+**使用创建的Logger对象**
+
+```
+logger := log.GetLogger("log", 
+    log.WithFilePath("./log/"),
+    log.WithJsonFile(true),
+    log.WithLogLevel(log.DebugLevel))
+defer logger.Stop()
+
+logger.Debug("Debug Message")
+logger.Info("Info Message")
+logger.Warn("Warn Message")
+logger.Error("Error Message")
+logger.Fatal("Fatal Message...")
+```
