@@ -1,4 +1,6 @@
-# Golang 日志库
+# Logger
+
+Go 轻量级日志库
 
 ## 功能
 
@@ -8,16 +10,27 @@
 * 对每日的日志文件进行拆分，便于分辨每天的日志
 * ERROR/FATAL 在原来记录的基础上，再输出到.error.log记录文件中
 * 控制台不同级别的输出颜色不同
-* 默认为控制台输出，若需要文件打印，需调用OnInit对输出的文件目录等进行初始化
+* 默认为控制台输出，若需要文件打印，需调用WithFilePath对输出的文件目录等进行初始化
+* 调用log.Stop()优雅退出
+* 缓存写机制，保证日志文件的完整性
 
 ## 使用
 ~~~
-    log.OnInit("./", log.LOGDEBUG, 1024 * 3, false)
-    for i := 0; i < 100; i++ {
-        log.Debug("----这是一条 Debug 的日志----")
-        log.Info("----这是一条 Info 的日志----")
-        log.Warn("----这是一条 Warn 的日志----")
-        log.Error("----这是一条 Error 的日志----")
-    }
-    log.Fatal("----这是一条 Fatal 的日志----")
+    defer log.Stop()
+
+	log.SetConfig(
+		log.WithLogLevel(log.InfoLevel),
+		log.WithFilePath("."))
+
+    log.Debug("Debug Message")
+    log.Info("Info Message")
+    log.Warn("Warn Message")
+    log.Error("Error Message")
+    log.Fatal("Fatal Message")
+    
+    log.Debugf("%s, "Debug Message")
+    log.Infof("%s, "Info Message")
+    log.Warnf("%s, "Warn Message")
+    log.Errorf("%s, "Error Message")
+    log.Fatalf("%s, "Fatal Message")
 ~~~
