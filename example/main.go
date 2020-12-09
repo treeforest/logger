@@ -9,6 +9,7 @@ func TestGetLogger() {
 		log.WithErrFilePath("./log_error/"),
 		log.WithJsonFile(true),
 		log.WithLogLevel(log.DebugLevel))
+	defer logger.Stop()
 
 	logger.Debug("Debug Message")
 	logger.Info("Info Message")
