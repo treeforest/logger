@@ -2,7 +2,21 @@ package main
 
 import (
 	"github.com/treeforest/logger"
+	"sync"
 )
+
+func TestInGoroutine() {
+	wg := sync.WaitGroup{}
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func(j int) {
+			defer wg.Done()
+			log.Infof("Hello -> %d", j)
+		}(i)
+	}
+	wg.Wait()
+	log.Stop()
+}
 
 func TestGetLogger() {
 	logger := log.GetLogger("log", log.WithFilePath("./log/"),
@@ -45,7 +59,8 @@ func TestWriteSuccess() {
 }
 
 func main() {
+	TestInGoroutine()
 	//TestGetLogger()
-	TestDefaultLog()
+	//TestDefaultLog()
 	//TestWriteSuccess()
 }

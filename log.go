@@ -5,8 +5,12 @@ import (
 	"sync"
 )
 
+func init() {
+	defaultLogger = GetLogger(defaultNoneModule, WithLogLevel(DebugLevel))
+}
+
 // 默认全局日志记录句柄
-var defaultLogger Logger = GetLogger(defaultNoneModule, WithLogLevel(DebugLevel))
+var defaultLogger Logger
 
 func Debug(a ...interface{}) {
 	defaultLogger.Debug(a...)
