@@ -166,7 +166,7 @@ func (lc *loggerCore) fatal(a ...interface{}) {
 
 // 记录
 func (lc *loggerCore) log(level logLevel, content string) {
-	if lc.config.level > level && lc.state != RunState {
+	if lc.config.level > level || lc.state != RunState {
 		return
 	}
 

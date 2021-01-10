@@ -58,9 +58,17 @@ func TestWriteSuccess() {
 	}
 }
 
+func TestSetLevel() {
+	defer log.Stop()
+	log.SetConfig(log.WithLogLevel(log.InfoLevel))
+	log.Debug("Hello Debug")
+	log.Info("Hello Info")
+}
+
 func main() {
-	TestInGoroutine()
+	//TestInGoroutine()
 	//TestGetLogger()
 	//TestDefaultLog()
 	//TestWriteSuccess()
+	TestSetLevel()
 }
