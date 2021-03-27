@@ -56,6 +56,7 @@ func SetConfig(opts ...Option) {
 	defaultLogger.SetConfig(opts...)
 }
 
+// Stop 关闭日志。用户主动关闭日志读写，否则会在异步情况下丢失日志数据
 func Stop() {
 	defaultLogger.Stop()
 }
@@ -91,6 +92,8 @@ type Logger interface {
 var loggers = make(map[string]Logger)
 var lock = sync.Mutex{}
 
+// GetLogger 获取不同模块下的日志句柄，若改模块已存在，则直接返回句柄；
+// 否则，创建一个新的日志句柄并返回。
 func GetLogger(module string, opts ...Option) Logger {
 	lock.Lock()
 	defer lock.Unlock()
@@ -108,6 +111,8 @@ func GetLogger(module string, opts ...Option) Logger {
 	return l
 }
 
+// StopAll 停止所有的日志模块。在检测到panic时，建议停止所有
+// 的日志模块，以确保异步的日志能在panic之前打印结束。
 func StopAll() {
 	for _, l := range loggers {
 		l.Stop()

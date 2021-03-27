@@ -65,10 +65,22 @@ func TestSetLevel() {
 	log.Info("Hello Info")
 }
 
+func TestPanic() {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatal(err)
+			log.Stop()
+		}
+	}()
+	log.Debug("hello")
+	panic("error")
+}
+
 func main() {
 	//TestInGoroutine()
 	//TestGetLogger()
 	//TestDefaultLog()
 	//TestWriteSuccess()
-	TestSetLevel()
+	//TestSetLevel()
+	TestPanic()
 }

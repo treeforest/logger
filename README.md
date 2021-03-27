@@ -53,3 +53,6 @@ logger.Warn("Warn Message")
 logger.Error("Error Message")
 logger.Fatal("Fatal Message...")
 ```
+
+## 注意
+日志采用的是异步打印，需要用户主动调用Stop或StopAll主动关闭日志的读写，防止panic情况下，使得队列中的待输出日志丢失。
