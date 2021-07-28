@@ -54,6 +54,18 @@ func (l *logger) Fatalf(format string, a ...interface{}) {
 	l.core.fatal(fmt.Sprintf(format, a...))
 }
 
+func (l *logger) SetWriteMode(mode writeMode) {
+	l.core.setWriteMode(mode)
+}
+
+func (l *logger) SetStdWriteState(state writeState) {
+	l.core.setStdWriteState(state)
+}
+
+func (l *logger) SetFileWriteState(state writeState) {
+	l.core.setFileWriteState(state)
+}
+
 func (l *logger) SetConfig(opts ...Option) {
 	l.core.setConfig(opts...)
 }

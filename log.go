@@ -48,6 +48,18 @@ func Fatal(a ...interface{}) {
 	defaultLogger.Fatal(a...)
 }
 
+func SetWriteMode(mode writeMode) {
+	defaultLogger.SetWriteMode(mode)
+}
+
+func SetStdWriteState(state writeState) {
+	defaultLogger.SetStdWriteState(state)
+}
+
+func SetFileWriteState(state writeState) {
+	defaultLogger.SetFileWriteState(state)
+}
+
 func Fatalf(format string, a ...interface{}) {
 	defaultLogger.Fatalf(format, a...)
 }
@@ -56,7 +68,6 @@ func SetConfig(opts ...Option) {
 	defaultLogger.SetConfig(opts...)
 }
 
-// Stop 关闭日志。用户主动关闭日志读写，否则会在异步情况下丢失日志数据
 func Stop() {
 	defaultLogger.Stop()
 }
@@ -73,6 +84,20 @@ const (
 	FatalLevel
 )
 
+// 日志写模式（同步写或异步写）
+type writeMode uint // 写模式
+const (
+	Sync writeMode = 0 // 同步
+	Async writeMode	=1	// 异步
+)
+
+// 写状态
+type writeState uint
+const (
+	On writeState = 0 // 打开
+	Off writeState = 1 // 关闭
+)
+
 type Logger interface {
 	Debug(a ...interface{})
 	Debugf(format string, a ...interface{})
@@ -85,6 +110,9 @@ type Logger interface {
 	Fatal(a ...interface{})
 	Fatalf(format string, a ...interface{})
 
+	SetWriteMode(mode writeMode)
+	SetStdWriteState(state writeState)
+	SetFileWriteState(state writeState)
 	SetConfig(opts ...Option)
 	Stop()
 }
@@ -92,8 +120,6 @@ type Logger interface {
 var loggers = make(map[string]Logger)
 var lock = sync.Mutex{}
 
-// GetLogger 获取不同模块下的日志句柄，若改模块已存在，则直接返回句柄；
-// 否则，创建一个新的日志句柄并返回。
 func GetLogger(module string, opts ...Option) Logger {
 	lock.Lock()
 	defer lock.Unlock()
@@ -111,8 +137,6 @@ func GetLogger(module string, opts ...Option) Logger {
 	return l
 }
 
-// StopAll 停止所有的日志模块。在检测到panic时，建议停止所有
-// 的日志模块，以确保异步的日志能在panic之前打印结束。
 func StopAll() {
 	for _, l := range loggers {
 		l.Stop()

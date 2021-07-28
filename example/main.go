@@ -1,21 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"github.com/treeforest/logger"
-	"sync"
+	"time"
 )
 
 func TestInGoroutine() {
-	wg := sync.WaitGroup{}
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func(j int) {
-			defer wg.Done()
-			log.Infof("Hello -> %d", j)
-		}(i)
+	now := time.Now()
+	for i := 0; i < 100000; i++ {
+		log.Infof("Hello -> %d", i)
+		//fmt.Println("----------")
 	}
-	wg.Wait()
-	log.Stop()
+	interval := time.Now().Sub(now).Milliseconds()
+	fmt.Printf("时间: %dms", interval)
 }
 
 func TestGetLogger() {
@@ -65,22 +63,10 @@ func TestSetLevel() {
 	log.Info("Hello Info")
 }
 
-func TestPanic() {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Fatal(err)
-			log.Stop()
-		}
-	}()
-	log.Debug("hello")
-	panic("error")
-}
-
 func main() {
-	//TestInGoroutine()
+	TestInGoroutine()
 	//TestGetLogger()
 	//TestDefaultLog()
 	//TestWriteSuccess()
 	//TestSetLevel()
-	TestPanic()
 }

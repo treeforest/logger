@@ -6,7 +6,6 @@ package log
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -47,6 +46,10 @@ type loggerCore struct {
 	fatalStop       chan bool     // fatal日志导致的stop
 	pool            sync.Pool     // 临时对象池
 	items           chan *logItem // 日志打印缓冲池
+	mode            writeMode     // 写模式（同步/异步）
+	switchMode      chan struct{} // 切换模式信号
+	stdStop         bool          // 停止控制台输出
+	fileStop        bool          // 停止文件输出
 }
 
 // 日志记录单元
@@ -75,18 +78,14 @@ func newLoggerCore(depth uint32, opts ...Option) *loggerCore {
 		depth:           depth,
 		pool:            sync.Pool{New: newLogItem},
 		items:           make(chan *logItem, config.maxChannelSize),
+		localIP:         localIP(),
 		state:           RunState,
 		stopped:         make(chan bool),
 		fatalStop:       make(chan bool),
 		cancelStdWriter: func() {},
-	}
-
-	if core.config.path == "" {
-		//log.Println("start std logger...")
-		core.startStdLogger()
-	} else {
-		//log.Println("start std and file logger...")
-		core.startStdAndFileLogger()
+		mode:            Sync,  // 默认同步
+		stdStop:         false, //默认开启控制台输出
+		fileStop:        true,  // 默认关闭文件输出
 	}
 
 	return core
@@ -98,41 +97,6 @@ func (lc *loggerCore) setConfig(opts ...Option) {
 	}
 
 	lc.config.validateConfig()
-
-	if lc.config.path != "" {
-		lc.startStdAndFileLogger()
-	}
-}
-
-// 启动控制台日志文件打印
-func (lc *loggerCore) startStdLogger() {
-	ctx, cancel := context.WithCancel(context.Background())
-	lc.cancelStdWriter = cancel
-	go lc.stdWriter(ctx)
-}
-
-// 启动日志文件输出
-func (lc *loggerCore) startStdAndFileLogger() {
-	lc.initOnce.Do(func() {
-		lc.pFile = nil
-		lc.pErrFile = nil
-		lc.localIP = localIP()
-
-		if err := lc.switchFile(); err != nil {
-			log.Printf("switchFile() panic: %v\n", err)
-			panic(err)
-		}
-
-		if err := lc.switchErrFile(); err != nil {
-			log.Printf("switchErrFile() panic: %v\n", err)
-			panic(err)
-		}
-
-		// 关闭之前运行的控制台打印（若是开启）
-		lc.cancelStdWriter()
-
-		go lc.stdAndFileWriter()
-	})
 }
 
 // debug 方法
@@ -159,7 +123,10 @@ func (lc *loggerCore) error(a ...interface{}) {
 func (lc *loggerCore) fatal(a ...interface{}) {
 	lc.log(FatalLevel, fmt.Sprint(a...))
 
-	<-lc.fatalStop
+	if lc.mode == Async {
+		// 等待队列里的日志打印结束
+		<-lc.fatalStop
+	}
 	//log.Println("!!! log call fatal exit !!!")
 	os.Exit(1)
 }
@@ -175,8 +142,13 @@ func (lc *loggerCore) log(level logLevel, content string) {
 	item.content = content
 	item.fileName, item.localFunc, item.line = getCallerInfo(lc.depth)
 
-	// 异步写
-	lc.items <- item
+	if lc.mode == Sync {
+		// 同步写
+		lc.syncWrite(item)
+	} else if lc.mode == Async {
+		// 异步写
+		lc.items <- item
+	}
 }
 
 // 设置日志级别
@@ -184,69 +156,96 @@ func (lc *loggerCore) setLogLevel(level logLevel) {
 	lc.config.level = level
 }
 
-// 仅开启控制台进行日志打印
-func (lc *loggerCore) stdWriter(ctx context.Context) {
-	isFatalLog := false
+// setWriteMode 设置写模式
+func (lc *loggerCore) setWriteMode(mode writeMode) {
+	if lc.mode == mode {
+		return
+	}
 
-	defer func() {
-		if err := recover(); err != nil {
-			log.Printf("stdWriter() panic: %v\n", err)
+	// 同步模式
+	if mode == Sync {
+		lc.switchMode <- struct{}{} // 关闭异步写
+	} else if mode == Async {
+		lc.pFile = nil
+		lc.pErrFile = nil
+		lc.localIP = localIP()
+		// 开启异步模式
+		if err := lc.switchFile(); err != nil {
+			log.Printf("switchFile() panic: %v\n", err)
+			panic(err)
 		}
-		if isFatalLog {
-			lc.fatalStop <- true
-		} else if atomic.LoadInt32(&lc.state) == StoppingState {
-			//log.Println("stdWriter stopped.")
-			lc.stopped <- true
-		} else {
-			// log.Println("cancel()")
+
+		if err := lc.switchErrFile(); err != nil {
+			log.Printf("switchErrFile() panic: %v\n", err)
+			panic(err)
 		}
-		//log.Println("exit...")
-	}()
-	//log.Println("start writer...")
+		go lc.asyncWrite()
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
+	lc.mode = mode
+}
 
-		case item, ok := <-lc.items:
-			if !ok {
-				//log.Println("channel has closed.")
-				return
-			}
+// setStdWriteState 设置控制台写的状态
+func (lc *loggerCore) setStdWriteState(state writeState) {
+	if state == On {
+		lc.stdStop = false
+	} else if state == Off {
+		lc.stdStop = true
+	} else {
+		//
+	}
+}
 
-			toStdStr, _ := lc.unpack(item)
-			lc.outputConsole(item.level, &toStdStr)
+// setFileWriteState 设置文件写的状态
+func (lc *loggerCore) setFileWriteState(state writeState) {
+	if state == On {
+		lc.fileStop = false
+	} else if state == Off {
+		lc.fileStop = true
+	} else {
+		//
+	}
+}
 
-			if item.level == FatalLevel {
-				isFatalLog = true// 控制台输出是顺序性的，直接返回即可。若有缓存的日志，直接抛弃。
-				return
-			}
-			lc.put(item)
+// syncWrite 同步写日志
+func (lc *loggerCore) syncWrite(item *logItem) {
+	toStdStr, toFileStr := lc.unpack(item)
+	if lc.stdStop && lc.fileStop {
+		fmt.Println("错误：关闭了所有输出！！！")
+		return
+	} else if lc.stdStop {// 停止控制台输出
+		lc.outputFile(&toFileStr)
+		if item.level >= ErrorLevel {
+			lc.outputErrFile(&toFileStr)
+		}
+	} else if lc.fileStop {// 停止文件输出
+		lc.outputConsole(item.level, &toStdStr)
+	} else {
+		// 正常输出
+		lc.outputConsole(item.level, &toStdStr)
+		lc.outputFile(&toFileStr)
+		if item.level >= ErrorLevel {
+			lc.outputErrFile(&toFileStr)
 		}
 	}
 }
 
-// 同时开启控制台与文件的日志记录
-func (lc *loggerCore) stdAndFileWriter() {
-	// 检测文件大小的定时器，如果文件超过设定的阈值，则进行切分文件
-	flushTicker := time.NewTicker(lc.config.fileFlushTick)
-
-	// 定时切分文件的定时器，区别每天的文件
-	switchTimer := time.NewTimer(getFirstSwitchTime())
-
+// asyncWrite 异步写日志
+func (lc *loggerCore) asyncWrite() {
 	isFatalLog := false
+	switchMode := false
 
 	defer func() {
 		lc.fileWriter.Flush()
 		lc.errFileWriter.Flush()
 
-		if err := recover(); err != nil {
-			log.Printf("stdAndFileWriter() panic: %v\n", err)
+		if switchMode {
+			return
 		}
 
-		flushTicker.Stop()
-		switchTimer.Stop()
+		if err := recover(); err != nil {
+			log.Printf("asyncFileWrite() panic: %v\n", err)
+		}
 
 		if isFatalLog {
 			lc.fatalStop <- true
@@ -255,8 +254,6 @@ func (lc *loggerCore) stdAndFileWriter() {
 			lc.stopped <- true
 		}
 	}()
-
-	lock := &sync.Mutex{}
 
 	for {
 		select {
@@ -267,57 +264,110 @@ func (lc *loggerCore) stdAndFileWriter() {
 			}
 
 			toStdStr, toFileStr := lc.unpack(item)
-			lc.outputConsole(item.level, &toStdStr)
-			lc.outputFile(&toFileStr)
-			if item.level >= ErrorLevel {
-				lc.outputErrFile(&toStdStr)
+
+			if lc.stdStop && lc.fileStop {
+				fmt.Println("错误：关闭了所有输出！！！")
+				continue
+			} else if lc.stdStop {
+				// 停止控制台输出
+				lc.outputFile(&toFileStr)
+				if item.level >= ErrorLevel {
+					lc.outputErrFile(&toFileStr)
+				}
+			} else if lc.fileStop {
+				// 停止文件输出
+				lc.outputConsole(item.level, &toStdStr)
+			} else {
+				// 正常输出
+				lc.outputConsole(item.level, &toStdStr)
+				lc.outputFile(&toFileStr)
+				if item.level >= ErrorLevel {
+					lc.outputErrFile(&toFileStr)
+				}
 			}
 
 			if item.level == FatalLevel {
 				isFatalLog = true
 				return
 			}
-			lc.put(item)
 
+			lc.put(item)
+		case <-lc.switchMode:
+			switchMode = true
+		}
+	}
+}
+
+// asyncSplitFile 异步切割日志文件。分为按照大写与时间进行切割
+func (lc *loggerCore) asyncSplitFile() {
+	// 检测文件大小的定时器，如果文件超过设定的阈值，则进行切分文件
+	flushTicker := time.NewTicker(lc.config.fileFlushTick)
+
+	// 定时切分文件的定时器，区别每天的文件
+	switchTimer := time.NewTimer(getFirstSwitchTime())
+
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("asyncSplitFile() panic: %v\n", err)
+		}
+
+		flushTicker.Stop()
+		switchTimer.Stop()
+	}()
+
+	l := &sync.Mutex{}
+
+	for {
+		select {
 		case <-flushTicker.C:
 			// 定时检查日志文件大小，进行文件切分
-			logFileSize := fileSize(lc.pathName)
-			logErrFileSize := fileSize(lc.errPathName)
-			if logFileSize >= lc.config.singleFileSize || logErrFileSize >= lc.config.singleFileSize {
-				lock.Lock()
-				if logFileSize >= lc.config.singleFileSize {
-					if err := lc.switchFile(); err != nil {
-						log.Printf("log switch failed: %v\n", err)
-						lock.Unlock()
-						panic(err)
-					}
-				}
-				if logErrFileSize >= lc.config.singleFileSize {
-					if err := lc.switchErrFile(); err != nil {
-						log.Printf("log switch failed: %v\n", err)
-						lock.Unlock()
-						panic(err)
-					}
-				}
-				lock.Unlock()
-			}
+			lc.splitFileBySize(l)
 
 		case <-switchTimer.C:
 			// 对每天产生的日志文件切分
-			lock.Lock()
-			if err := lc.switchFile(); err != nil {
-				log.Printf("log switch failed: %v\n", err)
-				lock.Unlock()
-				panic(err)
-			}
-			if err := lc.switchErrFile(); err != nil {
-				log.Printf("log switch failed: %v\n", err)
-				lock.Unlock()
-				panic(err)
-			}
-			lock.Unlock()
+			lc.splitFileByDay(l)
 			switchTimer.Reset(getNextSwitchTime())
 		}
+	}
+}
+
+// splitFileByDay 每日进行切割文件。
+func (lc *loggerCore) splitFileByDay(l sync.Locker) {
+	l.Lock()
+	if err := lc.switchFile(); err != nil {
+		log.Printf("log switch failed: %v\n", err)
+		lock.Unlock()
+		panic(err)
+	}
+	if err := lc.switchErrFile(); err != nil {
+		log.Printf("log switch failed: %v\n", err)
+		lock.Unlock()
+		panic(err)
+	}
+	l.Unlock()
+}
+
+// splitFileBySize 根据文件大小进行切割文件。若达到阈值，则进行文件切分
+func (lc *loggerCore) splitFileBySize(l sync.Locker) {
+	logFileSize := fileSize(lc.pathName)
+	logErrFileSize := fileSize(lc.errPathName)
+	if logFileSize >= lc.config.singleFileSize || logErrFileSize >= lc.config.singleFileSize {
+		l.Lock()
+		if logFileSize >= lc.config.singleFileSize {
+			if err := lc.switchFile(); err != nil {
+				log.Printf("log switch failed: %v\n", err)
+				l.Unlock()
+				panic(err)
+			}
+		}
+		if logErrFileSize >= lc.config.singleFileSize {
+			if err := lc.switchErrFile(); err != nil {
+				log.Printf("log switch failed: %v\n", err)
+				l.Unlock()
+				panic(err)
+			}
+		}
+		l.Unlock()
 	}
 }
 
