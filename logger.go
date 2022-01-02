@@ -1,75 +1,90 @@
-package log
+package slog
 
 import (
-	"fmt"
+	"log"
+	"os"
 )
 
-type logger struct {
-	core *loggerCore
+var l Logger = &simpleLogger{l: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile)}
+
+type Logger interface {
+	Debug(v ...interface{})
+	Debugf(format string, v ...interface{})
+
+	Info(v ...interface{})
+	Infof(format string, v ...interface{})
+
+	Warn(v ...interface{})
+	Warnf(format string, v ...interface{})
+
+	Error(v ...interface{})
+	Errorf(format string, v ...interface{})
+
+	Fatal(v ...interface{})
+	Fatalf(format string, v ...interface{})
+
+	SetLevel(lvl Level)
 }
 
-func newLogger(opts ...Option) Logger {
-	return &logger{
-		core: newLoggerCore(5, opts...),
-	}
+type Level int
+
+const (
+	DEBUG Level = 1 << iota
+	INFO
+	WARN
+	ERROR
+	FATAL
+	PANIC
+)
+
+var mapping map[Level]string = map[Level]string{
+	DEBUG: "DEBU",
+	INFO:  "INFO",
+	WARN:  "WARN",
+	ERROR: "ERRO",
+	FATAL: "FATA",
+	PANIC: "PANI",
 }
 
-func (l *logger) Debug(a ...interface{}) {
-	l.core.debug(a...)
+func SetLogger(logger Logger) {
+	l = logger
 }
 
-func (l *logger) Debugf(format string, a ...interface{}) {
-	l.core.debug(fmt.Sprintf(format, a...))
+func Debug(v ...interface{}) {
+	l.Debug(v...)
+}
+func Debugf(format string, v ...interface{}) {
+	l.Debugf(format, v...)
 }
 
-func (l *logger) Info(a ...interface{}) {
-	l.core.info(a...)
+func Info(v ...interface{}) {
+	l.Info(v...)
+}
+func Infof(format string, v ...interface{}) {
+	l.Infof(format, v...)
 }
 
-func (l *logger) Infof(format string, a ...interface{}) {
-	l.core.info(fmt.Sprintf(format, a...))
+func Warn(v ...interface{}) {
+	l.Warn(v...)
+}
+func Warnf(format string, v ...interface{}) {
+	l.Warnf(format, v...)
 }
 
-func (l *logger) Warn(a ...interface{}) {
-	l.core.warn(a...)
+func Error(v ...interface{}) {
+	l.Error(v...)
+}
+func Errorf(format string, v ...interface{}) {
+	l.Errorf(format, v...)
 }
 
-func (l *logger) Warnf(format string, a ...interface{}) {
-	l.core.warn(fmt.Sprintf(format, a...))
+func Fatal(v ...interface{}) {
+	l.Fatal(v...)
+}
+func Fatalf(format string, v ...interface{}) {
+	l.Fatalf(format, v...)
 }
 
-func (l *logger) Error(a ...interface{}) {
-	l.core.error(a...)
-}
-
-func (l *logger) Errorf(format string, a ...interface{}) {
-	l.core.error(fmt.Sprintf(format, a...))
-}
-
-func (l *logger) Fatal(a ...interface{}) {
-	l.core.fatal(a...)
-}
-
-func (l *logger) Fatalf(format string, a ...interface{}) {
-	l.core.fatal(fmt.Sprintf(format, a...))
-}
-
-func (l *logger) SetWriteMode(mode writeMode) {
-	l.core.setWriteMode(mode)
-}
-
-func (l *logger) SetStdWriteState(state writeState) {
-	l.core.setStdWriteState(state)
-}
-
-func (l *logger) SetFileWriteState(state writeState) {
-	l.core.setFileWriteState(state)
-}
-
-func (l *logger) SetConfig(opts ...Option) {
-	l.core.setConfig(opts...)
-}
-
-func (l *logger) Stop() {
-	l.core.stop()
+func SetLevel(lvl Level) {
+	l.SetLevel(lvl)
 }
