@@ -91,11 +91,11 @@ l := log.NewAsyncFileLogger(
 
 **测试环境**
 
-> CPU: 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz 2.42 GHz
-> Memory: 16G
-> Go: 1.18.1
-> OS: Windows 11
-> Hardware: SSD(UMIS RPJTJ512MEE1OWX)
+> CPU: 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz 2.42 GHz  
+> Memory: 16G  
+> Go: 1.18.1  
+> OS: Windows 11  
+> Hardware: SSD(UMIS RPJTJ512MEE1OWX)  
 
 **TPS**
 
@@ -105,13 +105,12 @@ l := log.NewAsyncFileLogger(
 
 * 日志文件异步写
 
-  16KB缓冲区，每秒进行刷盘：≈ 55000 entry/second
-
-  32KB缓冲区，每秒进行刷盘：≈ 75000 entry/second
-
-  64KB缓冲区，每秒进行刷盘：≈ 110000 entry/second
-
-  128KB缓冲区，每秒进行刷盘：≈ 170000 entry/second
+  | 写缓冲区大小 | 刷盘频率 |         TPS         |
+  | :----------: | :------: | :-----------------: |
+  |     16KB     |    1s    | 55000 entry/second  |
+  |     32KB     |    1s    | 75000 entry/second  |
+  |     64KB     |    1s    | 110000 entry/second |
+  |    128KB     |    1s    | 170000 entry/second |
 
 * 控制台输出
 
