@@ -1,11 +1,12 @@
-package slog
+package logger
 
-import (
-	"log"
-	"os"
-)
+var defaultLogger Logger
 
-var l Logger = &simpleLogger{l: log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile)}
+func init() {
+	// 初始化默认为控制台输出
+	l := NewStdLogger(WithLevel(DEBUG))
+	SetLogger(l)
+}
 
 type Logger interface {
 	Debug(v ...interface{})
@@ -24,6 +25,8 @@ type Logger interface {
 	Fatalf(format string, v ...interface{})
 
 	SetLevel(lvl Level)
+
+	Stop()
 }
 
 type Level int
@@ -34,7 +37,6 @@ const (
 	WARN
 	ERROR
 	FATAL
-	PANIC
 )
 
 var mapping map[Level]string = map[Level]string{
@@ -43,48 +45,58 @@ var mapping map[Level]string = map[Level]string{
 	WARN:  "WARN",
 	ERROR: "ERRO",
 	FATAL: "FATA",
-	PANIC: "PANI",
 }
 
+// SetLogger 设置默认的日志对象
 func SetLogger(logger Logger) {
-	l = logger
+	switch logger.(type) {
+	case *stdLogger:
+		logger.(*stdLogger).callDepth = 4
+	case *fileLogger:
+		logger.(*fileLogger).callDepth = 3
+	}
+	defaultLogger = logger
 }
 
 func Debug(v ...interface{}) {
-	l.Debug(v...)
+	defaultLogger.Debug(v...)
 }
 func Debugf(format string, v ...interface{}) {
-	l.Debugf(format, v...)
+	defaultLogger.Debugf(format, v...)
 }
 
 func Info(v ...interface{}) {
-	l.Info(v...)
+	defaultLogger.Info(v...)
 }
 func Infof(format string, v ...interface{}) {
-	l.Infof(format, v...)
+	defaultLogger.Infof(format, v...)
 }
 
 func Warn(v ...interface{}) {
-	l.Warn(v...)
+	defaultLogger.Warn(v...)
 }
 func Warnf(format string, v ...interface{}) {
-	l.Warnf(format, v...)
+	defaultLogger.Warnf(format, v...)
 }
 
 func Error(v ...interface{}) {
-	l.Error(v...)
+	defaultLogger.Error(v...)
 }
 func Errorf(format string, v ...interface{}) {
-	l.Errorf(format, v...)
+	defaultLogger.Errorf(format, v...)
 }
 
 func Fatal(v ...interface{}) {
-	l.Fatal(v...)
+	defaultLogger.Fatal(v...)
 }
 func Fatalf(format string, v ...interface{}) {
-	l.Fatalf(format, v...)
+	defaultLogger.Fatalf(format, v...)
 }
 
 func SetLevel(lvl Level) {
-	l.SetLevel(lvl)
+	defaultLogger.SetLevel(lvl)
+}
+
+func Stop() {
+	defaultLogger.Stop()
 }
