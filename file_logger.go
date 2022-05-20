@@ -67,6 +67,7 @@ func newFileLogger(path string, capacity int64, bufSize int, opts ...Option) *fi
 		capacity:  capacity,
 		bufSize:   bufSize,
 		stop:      make(chan struct{}, 1),
+		routineWG: sync.WaitGroup{},
 		stopped:   false,
 		c:         c, // 不设置缓冲区，禁止异步写
 	}
@@ -87,6 +88,7 @@ type fileLogger struct {
 	capacity  int64
 	bufSize   int
 	stop      chan struct{}
+	routineWG sync.WaitGroup
 	stopOnce  sync.Once
 	stopped   bool
 	c         chan *event
@@ -131,7 +133,7 @@ func (l *fileLogger) Fatal(v ...interface{}) {
 }
 
 func (l *fileLogger) Fatalf(format string, v ...interface{}) {
-	l.output(ERROR, fmt.Sprintf(format, v...))
+	l.output(FATAL, fmt.Sprintf(format, v...))
 	l.Stop()
 	os.Exit(1)
 }
@@ -162,17 +164,16 @@ func (l *fileLogger) isExistFile(name string) bool {
 }
 
 func (l *fileLogger) output(lvl Level, msg string) {
-	if l.stopped {
-		return
-	}
-
 	l.RLock()
-	level := l.conf.lvl
-	l.RUnlock()
-
-	if level > lvl {
+	if l.stopped {
+		l.RUnlock()
 		return
 	}
+	if l.conf.lvl > lvl {
+		l.RUnlock()
+		return
+	}
+	l.RUnlock()
 
 	var file, fn string = "???", "???"
 	var line int = 0
@@ -216,8 +217,11 @@ func (l *fileLogger) output(lvl Level, msg string) {
 }
 
 func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
+	l.routineWG.Add(1)
+	defer l.routineWG.Done()
+
 	dayTimer := l.getDayTimer()
-	asyncWriteTicker := time.NewTimer(flushInterval) //刷盘间隔
+	asyncTimer := time.NewTimer(flushInterval) //刷盘间隔
 
 	var err error
 	var fi os.FileInfo
@@ -227,12 +231,12 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 		case <-l.stop:
 			return
 
-		case <-asyncWriteTicker.C:
+		case <-asyncTimer.C:
 			_ = l.bw.Flush()
 			if err = l.f.Sync(); err != nil {
 				panic(err)
 			}
-			asyncWriteTicker = time.NewTimer(flushInterval)
+			asyncTimer = time.NewTimer(flushInterval)
 
 		case e := <-l.c:
 			_, err = l.bw.Write(e.data)
@@ -270,7 +274,11 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 }
 
 func (l *fileLogger) syncWrite() {
+	l.routineWG.Add(1)
+	defer l.routineWG.Done()
+
 	dayTimer := l.getDayTimer()
+
 	var err error
 	var fi os.FileInfo
 
@@ -335,12 +343,45 @@ func (l *fileLogger) getDayTimer() *time.Timer {
 
 func (l *fileLogger) Stop() {
 	l.stopOnce.Do(func() {
-		close(l.stop)
-		if l.f != nil {
-			_ = l.bw.Flush()
-			_ = l.f.Close()
-		}
 		l.stopped = true
+		close(l.stop)
+
+		// 等待协程退出
+		l.routineWG.Wait()
+
+		if l.f == nil {
+			return
+		}
+
+		close(l.c)
+
+		// 读出缓冲区的所有日志，并写入文件
+		for {
+			select {
+			case e, ok := <-l.c:
+				if !ok {
+					goto STOP
+				}
+				_, err := l.bw.Write(e.data)
+				if err != nil {
+					panic(err)
+				}
+				err = l.bw.WriteByte('\n')
+				if err != nil {
+					panic(err)
+				}
+				if e.done != nil {
+					e.done <- struct{}{}
+				}
+			}
+		}
+
+	STOP:
+		_ = l.bw.Flush()
+		_ = l.f.Sync()
+		_ = l.f.Close()
+		l.bw = nil
+		l.f = nil
 	})
 }
 
