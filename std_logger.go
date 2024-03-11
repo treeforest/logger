@@ -15,7 +15,7 @@ func NewStdLogger(opts ...Option) Logger {
 		o(conf)
 	}
 	return &stdLogger{
-		l:         log.New(os.Stdout, conf.prefix, log.LstdFlags|log.Lshortfile),
+		l:         log.New(os.Stdout, conf.Module, log.LstdFlags|log.Lshortfile),
 		c:         conf,
 		callDepth: 3,
 	}
@@ -24,13 +24,13 @@ func NewStdLogger(opts ...Option) Logger {
 type stdLogger struct {
 	sync.RWMutex
 	l         *log.Logger
-	c         *config
+	c         *LogConfig
 	callDepth int
 }
 
 func (l *stdLogger) output(lvl Level, msg string) {
 	l.RLock()
-	level := l.c.lvl
+	level := l.c.LogLevel
 	l.RUnlock()
 	if level > lvl {
 		return
@@ -106,7 +106,7 @@ func (l *stdLogger) Fatalf(format string, v ...interface{}) {
 }
 
 func (l *stdLogger) SetLevel(lvl Level) {
-	l.c.lvl = lvl
+	l.c.LogLevel = lvl
 }
 
 func (l *stdLogger) Stop() {

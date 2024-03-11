@@ -16,25 +16,25 @@ import (
 )
 
 // NewAsyncFileLogger 返回一个异步写的日志对象
-func NewAsyncFileLogger(path string, capacity int64, bufSize int, flushInterval time.Duration, opts ...Option) Logger {
-	l := newFileLogger(path, capacity, bufSize, opts...)
+func NewAsyncFileLogger(flushInterval time.Duration, opts ...Option) Logger {
+	l := newFileLogger(true, opts...)
 	go l.asyncWrite(flushInterval)
 	return l
 }
 
 // NewSyncFileLogger 返回一个同步写的日志对象
-func NewSyncFileLogger(path string, capacity int64, opts ...Option) Logger {
-	l := newFileLogger(path, capacity, 0, opts...)
+func NewSyncFileLogger(opts ...Option) Logger {
+	l := newFileLogger(false, opts...)
 	go l.syncWrite()
 	return l
 }
 
 // NewFileLogger 默认日志对象为异步写模式
 func NewFileLogger(opts ...Option) Logger {
-	return NewAsyncFileLogger(".", 1024*1024*4, 1024*64, time.Second, opts...)
+	return NewAsyncFileLogger(time.Second, opts...)
 }
 
-func newFileLogger(path string, capacity int64, bufSize int, opts ...Option) *fileLogger {
+func newFileLogger(async bool, opts ...Option) *fileLogger {
 	pool := &sync.Pool{
 		New: func() interface{} {
 			return new(logEntry)
@@ -47,12 +47,8 @@ func newFileLogger(path string, capacity int64, bufSize int, opts ...Option) *fi
 	}
 
 	var c chan *event
-	if bufSize > 0 {
-		if bufSize > 4096 {
-			c = make(chan *event, 4096)
-		} else {
-			c = make(chan *event, bufSize)
-		}
+	if async {
+		c = make(chan *event, 1024)
 	} else {
 		c = make(chan *event)
 	}
@@ -62,10 +58,7 @@ func newFileLogger(path string, capacity int64, bufSize int, opts ...Option) *fi
 		f:         nil,
 		pool:      pool,
 		callDepth: 2,
-		path:      path,
 		filename:  "",
-		capacity:  capacity,
-		bufSize:   bufSize,
 		stop:      make(chan struct{}, 1),
 		routineWG: sync.WaitGroup{},
 		stopped:   false,
@@ -78,15 +71,12 @@ func newFileLogger(path string, capacity int64, bufSize int, opts ...Option) *fi
 
 type fileLogger struct {
 	sync.RWMutex
-	conf      *config
+	conf      *LogConfig
 	f         *os.File
 	bw        *bufio.Writer
 	pool      *sync.Pool
 	callDepth int
-	path      string
 	filename  string
-	capacity  int64
-	bufSize   int
 	stop      chan struct{}
 	routineWG sync.WaitGroup
 	stopOnce  sync.Once
@@ -140,12 +130,12 @@ func (l *fileLogger) Fatalf(format string, v ...interface{}) {
 
 func (l *fileLogger) SetLevel(lvl Level) {
 	l.Lock()
-	l.conf.lvl = lvl
+	l.conf.LogLevel = lvl
 	l.Unlock()
 }
 
 type logEntry struct {
-	Prefix string `json:"prefix"`
+	Module string `json:"module,omitempty"`
 	Time   string `json:"time"`
 	Level  string `json:"level"`
 	File   string `json:"file"`
@@ -169,7 +159,7 @@ func (l *fileLogger) output(lvl Level, msg string) {
 		l.RUnlock()
 		return
 	}
-	if l.conf.lvl > lvl {
+	if l.conf.LogLevel > lvl {
 		l.RUnlock()
 		return
 	}
@@ -187,7 +177,7 @@ func (l *fileLogger) output(lvl Level, msg string) {
 	}
 
 	entry := l.pool.Get().(*logEntry)
-	entry.Prefix = l.conf.prefix
+	entry.Module = l.conf.Module
 	entry.Time = time.Now().Format("2006-01-02 15:04:05.000")
 	entry.Level = mapping[lvl]
 	entry.File = fmt.Sprintf("%s:%d", file, line)
@@ -201,7 +191,7 @@ func (l *fileLogger) output(lvl Level, msg string) {
 	l.pool.Put(entry)
 
 	var e *event
-	if l.bufSize > 0 {
+	if cap(l.c) > 0 {
 		// 异步写
 		e = &event{data: b, done: nil}
 	} else {
@@ -221,6 +211,7 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 	defer l.routineWG.Done()
 
 	dayTimer := l.getDayTimer()
+	hourTimer := l.getHourTimer()
 	asyncTimer := time.NewTimer(flushInterval) //刷盘间隔
 
 	var err error
@@ -248,7 +239,7 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 				panic(err)
 			}
 
-			capacity := atomic.LoadInt64(&l.capacity)
+			capacity := atomic.LoadInt64(&l.conf.RotationSize)
 			if capacity <= 0 {
 				// 存储无限制
 				break
@@ -269,6 +260,13 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 			l.splitLogFile()
 			l.Unlock()
 			dayTimer = l.getDayTimer()
+
+		case <-hourTimer.C:
+			time.Sleep(time.Second)
+			l.Lock()
+			l.splitLogFile()
+			l.Unlock()
+			hourTimer = l.getHourTimer()
 		}
 	}
 }
@@ -278,6 +276,7 @@ func (l *fileLogger) syncWrite() {
 	defer l.routineWG.Done()
 
 	dayTimer := l.getDayTimer()
+	hourTimer := l.getHourTimer()
 
 	var err error
 	var fi os.FileInfo
@@ -307,11 +306,12 @@ func (l *fileLogger) syncWrite() {
 			e.done <- struct{}{}
 
 			// 2. 进行日志写时检查：检查文件大小是否达到阈值，若达到阈值，则进行日志文件切割
-			capacity := atomic.LoadInt64(&l.capacity)
+			capacity := atomic.LoadInt64(&l.conf.RotationSize)
 			if capacity <= 0 {
 				// 存储无限制
 				break
 			}
+
 			fi, err = os.Stat(l.filename)
 			if err != nil {
 				panic(err)
@@ -329,16 +329,47 @@ func (l *fileLogger) syncWrite() {
 			l.splitLogFile()
 			l.Unlock()
 			dayTimer = l.getDayTimer()
+
+		case <-hourTimer.C:
+			time.Sleep(time.Second)
+			l.Lock()
+			l.splitLogFile()
+			l.Unlock()
+			hourTimer = l.getHourTimer()
 		}
 	}
 }
 
+func (l *fileLogger) getHourTimer() *time.Timer {
+	if l.conf.RotationTime == 0 {
+		return l.getNeverTriggerTimer()
+	}
+
+	now := time.Now()
+	d := time.Date(
+		now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location(),
+	).Add(time.Hour * time.Duration(l.conf.RotationTime)).Sub(now)
+	return time.NewTimer(d)
+}
+
 func (l *fileLogger) getDayTimer() *time.Timer {
+	if !l.conf.RotationDay {
+		return l.getNeverTriggerTimer()
+	}
+
 	now := time.Now()
 	d := time.Date(
 		now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location(),
 	).Add(24 * time.Hour).Sub(now)
 	return time.NewTimer(d)
+}
+
+func (l *fileLogger) getNeverTriggerTimer() *time.Timer {
+	timer := time.NewTimer(time.Duration(0))
+	if !timer.Stop() {
+		<-timer.C
+	}
+	return timer
 }
 
 func (l *fileLogger) Stop() {
@@ -402,8 +433,8 @@ func (l *fileLogger) splitLogFile() {
 
 	l.filename = filename
 	l.f = f
-	if l.bufSize > 0 {
-		l.bw = bufio.NewWriterSize(f, l.bufSize)
+	if cap(l.c) > 0 {
+		l.bw = bufio.NewWriterSize(f, 8192)
 	} else {
 		l.bw = bufio.NewWriter(f)
 	}
@@ -428,7 +459,7 @@ func (l *fileLogger) getFilename() string {
 	var filename string
 
 	// 组装文件名(时间.编号.log)
-	prefix := filepath.Join(l.path, time.Now().Format("20060102"))
+	prefix := filepath.Join(l.conf.LogPath, time.Now().Format("2006010215"))
 	for {
 		filename = prefix + fmt.Sprintf(".%02d.log", id)
 		if !l.isExistFile(filename) {

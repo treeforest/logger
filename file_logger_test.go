@@ -3,7 +3,7 @@ package logger
 import "testing"
 
 func TestFileLogger(t *testing.T) {
-	l := NewSyncFileLogger(".", 1024*1024*4)
+	l := NewSyncFileLogger()
 	s := "hello world"
 	l.Debug(s)
 	l.Info(s)

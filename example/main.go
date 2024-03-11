@@ -44,7 +44,7 @@ func main() {
 		1024*1024*8,
 		1024*64,
 		time.Second,
-		log.WithLevel(log.DEBUG),
+		log.WithLogLevel(log.DEBUG),
 		log.WithPrefix("example"),
 	))
 
@@ -52,7 +52,7 @@ func main() {
 	fn(log.NewSyncFileLogger(
 		".",
 		1024*1024*8,
-		log.WithLevel(log.DEBUG),
+		log.WithLogLevel(log.DEBUG),
 		log.WithPrefix("example"),
 	))
 

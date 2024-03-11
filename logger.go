@@ -4,7 +4,7 @@ var defaultLogger Logger
 
 func init() {
 	// 初始化默认为控制台输出
-	l := NewStdLogger(WithLevel(DEBUG))
+	l := NewStdLogger(WithLogLevel(DEBUG))
 	SetLogger(l)
 }
 
