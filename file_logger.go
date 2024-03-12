@@ -16,9 +16,9 @@ import (
 )
 
 // NewAsyncFileLogger 返回一个异步写的日志对象
-func NewAsyncFileLogger(flushInterval time.Duration, opts ...Option) Logger {
+func NewAsyncFileLogger(opts ...Option) Logger {
 	l := newFileLogger(true, opts...)
-	go l.asyncWrite(flushInterval)
+	go l.asyncWrite()
 	return l
 }
 
@@ -31,7 +31,7 @@ func NewSyncFileLogger(opts ...Option) Logger {
 
 // NewFileLogger 默认日志对象为异步写模式
 func NewFileLogger(opts ...Option) Logger {
-	return NewAsyncFileLogger(time.Second, opts...)
+	return NewAsyncFileLogger(opts...)
 }
 
 func newFileLogger(async bool, opts ...Option) *fileLogger {
@@ -47,6 +47,7 @@ func newFileLogger(async bool, opts ...Option) *fileLogger {
 	}
 
 	var c chan *event
+	c = make(chan *event, 1024)
 	if async {
 		c = make(chan *event, 1024)
 	} else {
@@ -206,13 +207,13 @@ func (l *fileLogger) output(lvl Level, msg string) {
 	}
 }
 
-func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
+func (l *fileLogger) asyncWrite() {
 	l.routineWG.Add(1)
 	defer l.routineWG.Done()
 
 	dayTimer := l.getDayTimer()
 	hourTimer := l.getHourTimer()
-	asyncTimer := time.NewTimer(flushInterval) //刷盘间隔
+	flushTimer := time.NewTimer(l.conf.FlushInterval) //刷盘间隔
 
 	var err error
 	var fi os.FileInfo
@@ -222,12 +223,12 @@ func (l *fileLogger) asyncWrite(flushInterval time.Duration) {
 		case <-l.stop:
 			return
 
-		case <-asyncTimer.C:
+		case <-flushTimer.C:
 			_ = l.bw.Flush()
 			if err = l.f.Sync(); err != nil {
 				panic(err)
 			}
-			asyncTimer = time.NewTimer(flushInterval)
+			flushTimer = time.NewTimer(l.conf.FlushInterval)
 
 		case e := <-l.c:
 			_, err = l.bw.Write(e.data)
@@ -362,6 +363,10 @@ func (l *fileLogger) getDayTimer() *time.Timer {
 		now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location(),
 	).Add(24 * time.Hour).Sub(now)
 	return time.NewTimer(d)
+}
+
+func (l *fileLogger) getFlushTimer() *time.Timer {
+	return time.NewTimer(l.conf.FlushInterval)
 }
 
 func (l *fileLogger) getNeverTriggerTimer() *time.Timer {

@@ -5,8 +5,6 @@ import (
 	"log"
 	"os"
 	"sync"
-
-	"github.com/fatih/color"
 )
 
 func NewStdLogger(opts ...Option) Logger {
@@ -37,20 +35,10 @@ func (l *stdLogger) output(lvl Level, msg string) {
 	}
 
 	s := ""
-	switch lvl {
-	case DEBUG:
-		s = l.pack(mapping[DEBUG], msg)
-	case INFO:
-		s = l.pack(color.GreenString(mapping[INFO]), msg)
-	case WARN:
-		s = l.pack(color.YellowString(mapping[WARN]), msg)
-	case ERROR:
-		s = l.pack(color.RedString(mapping[ERROR]), msg)
-	case FATAL:
-		s = l.pack(color.MagentaString(mapping[FATAL]), msg)
-	default:
-		fmt.Println("unknown level")
-		return
+	if l.c.ShowColor {
+		s = l.pack(colorMapping[level], msg)
+	} else {
+		s = l.pack(mapping[level], msg)
 	}
 
 	err := l.l.Output(l.callDepth, s)

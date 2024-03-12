@@ -1,5 +1,7 @@
 package logger
 
+import "github.com/fatih/color"
+
 var defaultLogger Logger
 
 func init() {
@@ -45,6 +47,14 @@ var mapping map[Level]string = map[Level]string{
 	WARN:  "WARN",
 	ERROR: "ERRO",
 	FATAL: "FATA",
+}
+
+var colorMapping map[Level]string = map[Level]string{
+	DEBUG: "DEBU",
+	INFO:  color.GreenString("INFO"),
+	WARN:  color.YellowString("WARN"),
+	ERROR: color.RedString("ERRO"),
+	FATAL: color.MagentaString("FATA"),
 }
 
 // SetLogger 设置默认的日志对象

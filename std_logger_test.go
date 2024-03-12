@@ -5,7 +5,7 @@ import (
 )
 
 func BenchmarkSimpleLogger_Info(b *testing.B) {
-	l := NewStdLogger(WithLogLevel(DEBUG), WithPrefix("benchmark"))
+	l := NewStdLogger(WithLogLevel(DEBUG), WithPrefix("[BENCHMARK]"), WithShowColor())
 	for i := 0; i < b.N; i++ {
 		l.Info("Hello, this is benchmark test.")
 	}
