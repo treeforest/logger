@@ -40,18 +40,12 @@ func main() {
 
 	// 文件异步写
 	fn(log.NewAsyncFileLogger(
-		".",
-		1024*1024*8,
-		1024*64,
-		time.Second,
 		log.WithLogLevel(log.DEBUG),
 		log.WithPrefix("example"),
 	))
 
 	// 文件同步写
 	fn(log.NewSyncFileLogger(
-		".",
-		1024*1024*8,
 		log.WithLogLevel(log.DEBUG),
 		log.WithPrefix("example"),
 	))
