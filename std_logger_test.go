@@ -12,6 +12,9 @@ func BenchmarkSimpleLogger_Info(b *testing.B) {
 }
 
 func TestInfo(t *testing.T) {
-	l := NewStdLogger(WithPrefix("[TEST]"))
-	l.Info("hello world")
+	l := NewStdLogger(WithPrefix("[TEST]"), WithShowColor())
+	l.Debug("debug message")
+	l.Info("info message")
+	l.Warn("warn message")
+	l.Error("error message")
 }

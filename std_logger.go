@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 )
 
 func NewStdLogger(opts ...Option) Logger {
@@ -20,25 +19,21 @@ func NewStdLogger(opts ...Option) Logger {
 }
 
 type stdLogger struct {
-	sync.RWMutex
 	l         *log.Logger
 	c         *LogConfig
 	callDepth int
 }
 
 func (l *stdLogger) output(lvl Level, msg string) {
-	l.RLock()
-	level := l.c.LogLevel
-	l.RUnlock()
-	if level > lvl {
+	if l.c.LogLevel > lvl {
 		return
 	}
 
 	s := ""
 	if l.c.ShowColor {
-		s = l.pack(colorMapping[level], msg)
+		s = l.pack(colorMapping[lvl], msg)
 	} else {
-		s = l.pack(mapping[level], msg)
+		s = l.pack(mapping[lvl], msg)
 	}
 
 	err := l.l.Output(l.callDepth, s)
