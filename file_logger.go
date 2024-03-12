@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -47,9 +46,8 @@ func newFileLogger(async bool, opts ...Option) *fileLogger {
 	}
 
 	var c chan *event
-	c = make(chan *event, 1024)
 	if async {
-		c = make(chan *event, 1024)
+		c = make(chan *event, 8192)
 	} else {
 		c = make(chan *event)
 	}
@@ -62,7 +60,6 @@ func newFileLogger(async bool, opts ...Option) *fileLogger {
 		filename:  "",
 		stop:      make(chan struct{}, 1),
 		routineWG: sync.WaitGroup{},
-		stopped:   false,
 		c:         c, // 不设置缓冲区，禁止异步写
 	}
 	l.splitLogFile()
@@ -71,7 +68,6 @@ func newFileLogger(async bool, opts ...Option) *fileLogger {
 }
 
 type fileLogger struct {
-	sync.RWMutex
 	conf      *LogConfig
 	f         *os.File
 	bw        *bufio.Writer
@@ -81,7 +77,6 @@ type fileLogger struct {
 	stop      chan struct{}
 	routineWG sync.WaitGroup
 	stopOnce  sync.Once
-	stopped   bool
 	c         chan *event
 }
 
@@ -130,9 +125,7 @@ func (l *fileLogger) Fatalf(format string, v ...interface{}) {
 }
 
 func (l *fileLogger) SetLevel(lvl Level) {
-	l.Lock()
 	l.conf.LogLevel = lvl
-	l.Unlock()
 }
 
 type logEntry struct {
@@ -155,16 +148,15 @@ func (l *fileLogger) isExistFile(name string) bool {
 }
 
 func (l *fileLogger) output(lvl Level, msg string) {
-	l.RLock()
-	if l.stopped {
-		l.RUnlock()
+	select {
+	case <-l.stop:
 		return
+	default:
 	}
+
 	if l.conf.LogLevel > lvl {
-		l.RUnlock()
 		return
 	}
-	l.RUnlock()
 
 	var file, fn string = "???", "???"
 	var line int = 0
@@ -240,7 +232,7 @@ func (l *fileLogger) asyncWrite() {
 				panic(err)
 			}
 
-			capacity := atomic.LoadInt64(&l.conf.RotationSize)
+			capacity := l.conf.RotationSize
 			if capacity <= 0 {
 				// 存储无限制
 				break
@@ -250,23 +242,15 @@ func (l *fileLogger) asyncWrite() {
 				panic(err)
 			}
 			if fi.Size() > capacity {
-				l.Lock()
 				l.splitLogFile()
-				l.Unlock()
 			}
 
 		case <-dayTimer.C:
-			time.Sleep(time.Second)
-			l.Lock()
 			l.splitLogFile()
-			l.Unlock()
 			dayTimer = l.getDayTimer()
 
 		case <-hourTimer.C:
-			time.Sleep(time.Second)
-			l.Lock()
 			l.splitLogFile()
-			l.Unlock()
 			hourTimer = l.getHourTimer()
 		}
 	}
@@ -307,7 +291,7 @@ func (l *fileLogger) syncWrite() {
 			e.done <- struct{}{}
 
 			// 2. 进行日志写时检查：检查文件大小是否达到阈值，若达到阈值，则进行日志文件切割
-			capacity := atomic.LoadInt64(&l.conf.RotationSize)
+			capacity := l.conf.RotationSize
 			if capacity <= 0 {
 				// 存储无限制
 				break
@@ -318,24 +302,15 @@ func (l *fileLogger) syncWrite() {
 				panic(err)
 			}
 			if fi.Size() > capacity {
-				l.Lock()
 				l.splitLogFile()
-				l.Unlock()
 			}
 
 		case <-dayTimer.C:
-			// 1. 每天24点触发，进行日志文件切割
-			time.Sleep(time.Second)
-			l.Lock()
 			l.splitLogFile()
-			l.Unlock()
 			dayTimer = l.getDayTimer()
 
 		case <-hourTimer.C:
-			time.Sleep(time.Second)
-			l.Lock()
 			l.splitLogFile()
-			l.Unlock()
 			hourTimer = l.getHourTimer()
 		}
 	}
@@ -379,7 +354,6 @@ func (l *fileLogger) getNeverTriggerTimer() *time.Timer {
 
 func (l *fileLogger) Stop() {
 	l.stopOnce.Do(func() {
-		l.stopped = true
 		close(l.stop)
 
 		// 等待协程退出
@@ -392,27 +366,20 @@ func (l *fileLogger) Stop() {
 		close(l.c)
 
 		// 读出缓冲区的所有日志，并写入文件
-		for {
-			select {
-			case e, ok := <-l.c:
-				if !ok {
-					goto STOP
-				}
-				_, err := l.bw.Write(e.data)
-				if err != nil {
-					panic(err)
-				}
-				err = l.bw.WriteByte('\n')
-				if err != nil {
-					panic(err)
-				}
-				if e.done != nil {
-					e.done <- struct{}{}
-				}
+		for e := range l.c {
+			_, err := l.bw.Write(e.data)
+			if err != nil {
+				panic(err)
+			}
+			err = l.bw.WriteByte('\n')
+			if err != nil {
+				panic(err)
+			}
+			if e.done != nil {
+				e.done <- struct{}{}
 			}
 		}
 
-	STOP:
 		_ = l.bw.Flush()
 		_ = l.f.Sync()
 		_ = l.f.Close()
@@ -431,7 +398,7 @@ func (l *fileLogger) splitLogFile() {
 	}
 
 	filename := l.getFilename()
-	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		panic(err)
 	}
@@ -439,7 +406,7 @@ func (l *fileLogger) splitLogFile() {
 	l.filename = filename
 	l.f = f
 	if cap(l.c) > 0 {
-		l.bw = bufio.NewWriterSize(f, 8192)
+		l.bw = bufio.NewWriterSize(f, l.conf.FileBufferBytes)
 	} else {
 		l.bw = bufio.NewWriter(f)
 	}
@@ -469,6 +436,22 @@ func (l *fileLogger) getFilename() string {
 		filename = prefix + fmt.Sprintf(".%02d.log", id)
 		if !l.isExistFile(filename) {
 			break
+		} else {
+			peekFilename := prefix + fmt.Sprintf(".%02d.log", id+1)
+			if !l.isExistFile(peekFilename) {
+				capacity := l.conf.RotationSize
+				if capacity <= 0 {
+					break
+				}
+				fi, err := os.Stat(filename)
+				if err != nil {
+					panic(err)
+				}
+				if fi.Size() <= capacity {
+					// 日志未达到切割大小，可以继续追加
+					break
+				}
+			}
 		}
 		id++
 	}

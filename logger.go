@@ -34,14 +34,14 @@ type Logger interface {
 type Level int
 
 const (
-	DEBUG Level = 1 << iota
+	DEBUG Level = iota
 	INFO
 	WARN
 	ERROR
 	FATAL
 )
 
-var mapping map[Level]string = map[Level]string{
+var mapping = map[Level]string{
 	DEBUG: "DEBU",
 	INFO:  "INFO",
 	WARN:  "WARN",
@@ -49,7 +49,7 @@ var mapping map[Level]string = map[Level]string{
 	FATAL: "FATA",
 }
 
-var colorMapping map[Level]string = map[Level]string{
+var colorMapping = map[Level]string{
 	DEBUG: "DEBU",
 	INFO:  color.GreenString("INFO"),
 	WARN:  color.YellowString("WARN"),
@@ -59,11 +59,11 @@ var colorMapping map[Level]string = map[Level]string{
 
 // SetLogger 设置默认的日志对象
 func SetLogger(logger Logger) {
-	switch logger.(type) {
+	switch l := logger.(type) {
 	case *stdLogger:
-		logger.(*stdLogger).callDepth = 4
+		l.callDepth = 4
 	case *fileLogger:
-		logger.(*fileLogger).callDepth = 3
+		l.callDepth = 3
 	}
 	defaultLogger = logger
 }
