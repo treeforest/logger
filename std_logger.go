@@ -13,7 +13,7 @@ func NewStdLogger(opts ...Option) Logger {
 		o(conf)
 	}
 	return &stdLogger{
-		l:         log.New(os.Stdout, conf.Module, log.LstdFlags|log.Lshortfile),
+		l:         log.New(os.Stderr, conf.Module, log.LstdFlags|log.Lshortfile),
 		c:         conf,
 		callDepth: 3,
 	}
