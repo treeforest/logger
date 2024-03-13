@@ -60,7 +60,7 @@ func newFileLogger(async bool, opts ...Option) *fileLogger {
 		filename:  "",
 		stop:      make(chan struct{}, 1),
 		routineWG: sync.WaitGroup{},
-		c:         c, // 不设置缓冲区，禁止异步写
+		c:         c, // 不设置缓冲区，则禁止异步写
 	}
 	l.splitLogFile()
 
@@ -142,11 +142,6 @@ type event struct {
 	done chan struct{}
 }
 
-func (l *fileLogger) isExistFile(name string) bool {
-	_, err := os.Stat(name)
-	return err == nil || os.IsExist(err)
-}
-
 func (l *fileLogger) output(lvl Level, msg string) {
 	select {
 	case <-l.stop:
@@ -205,7 +200,7 @@ func (l *fileLogger) asyncWrite() {
 
 	dayTimer := l.getDayTimer()
 	hourTimer := l.getHourTimer()
-	flushTimer := time.NewTimer(l.conf.FlushInterval) //刷盘间隔
+	flushTimer := time.NewTimer(l.conf.FlushInterval)
 
 	var err error
 	var fi os.FileInfo
@@ -232,16 +227,11 @@ func (l *fileLogger) asyncWrite() {
 				panic(err)
 			}
 
-			capacity := l.conf.RotationSize
-			if capacity <= 0 {
-				// 存储无限制
-				break
-			}
 			fi, err = os.Stat(l.filename)
 			if err != nil {
 				panic(err)
 			}
-			if fi.Size() > capacity {
+			if fi.Size() > l.conf.RotationSize {
 				l.splitLogFile()
 			}
 
@@ -272,7 +262,6 @@ func (l *fileLogger) syncWrite() {
 			return
 
 		case e := <-l.c:
-			// 1. 输出日志
 			_, err = l.bw.Write(e.data)
 			if err != nil {
 				panic(err)
@@ -281,27 +270,20 @@ func (l *fileLogger) syncWrite() {
 			if err != nil {
 				panic(err)
 			}
-			// 同步写到磁盘
+
 			_ = l.bw.Flush()
 			if err = l.f.Sync(); err != nil {
 				panic(err)
 			}
 
-			// 通知写成功的事件
+			// 通知写成功的消息
 			e.done <- struct{}{}
-
-			// 2. 进行日志写时检查：检查文件大小是否达到阈值，若达到阈值，则进行日志文件切割
-			capacity := l.conf.RotationSize
-			if capacity <= 0 {
-				// 存储无限制
-				break
-			}
 
 			fi, err = os.Stat(l.filename)
 			if err != nil {
 				panic(err)
 			}
-			if fi.Size() > capacity {
+			if fi.Size() > l.conf.RotationSize {
 				l.splitLogFile()
 			}
 
@@ -380,36 +362,45 @@ func (l *fileLogger) Stop() {
 			}
 		}
 
-		_ = l.bw.Flush()
-		_ = l.f.Sync()
-		_ = l.f.Close()
+		if err := l.bw.Flush(); err != nil {
+			panic(err)
+		}
+		if err := l.f.Sync(); err != nil {
+			panic(err)
+		}
+		if err := l.f.Close(); err != nil {
+			panic(err)
+		}
 		l.bw = nil
 		l.f = nil
 	})
 }
 
 func (l *fileLogger) splitLogFile() {
+	if !pathExists(l.conf.LogPath) {
+		if err := os.Mkdir(l.conf.LogPath, 0755); err != nil {
+			panic(err)
+		}
+	}
+
 	if l.f != nil {
-		_ = l.bw.Flush()
-		err := l.f.Close()
-		if err != nil {
+		if err := l.bw.Flush(); err != nil {
+			panic(err)
+		}
+		if err := l.f.Close(); err != nil {
 			panic(err)
 		}
 	}
 
 	filename := l.getFilename()
-	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		panic(err)
 	}
 
 	l.filename = filename
 	l.f = f
-	if cap(l.c) > 0 {
-		l.bw = bufio.NewWriterSize(f, l.conf.FileBufferBytes)
-	} else {
-		l.bw = bufio.NewWriter(f)
-	}
+	l.bw = bufio.NewWriterSize(f, l.conf.FileBufferBytes)
 }
 
 func (l *fileLogger) getFilename() string {
@@ -434,20 +425,16 @@ func (l *fileLogger) getFilename() string {
 	prefix := filepath.Join(l.conf.LogPath, time.Now().Format("2006010215"))
 	for {
 		filename = prefix + fmt.Sprintf(".%02d.log", id)
-		if !l.isExistFile(filename) {
+		if !fileExists(filename) {
 			break
 		} else {
 			peekFilename := prefix + fmt.Sprintf(".%02d.log", id+1)
-			if !l.isExistFile(peekFilename) {
-				capacity := l.conf.RotationSize
-				if capacity <= 0 {
-					break
-				}
+			if !fileExists(peekFilename) {
 				fi, err := os.Stat(filename)
 				if err != nil {
 					panic(err)
 				}
-				if fi.Size() <= capacity {
+				if fi.Size() <= l.conf.RotationSize {
 					// 日志未达到切割大小，可以继续追加
 					break
 				}
@@ -457,4 +444,27 @@ func (l *fileLogger) getFilename() string {
 	}
 
 	return filename
+}
+
+func fileExists(path string) bool {
+	if path == "" || len(path) > 468 {
+		return false
+	}
+
+	if fi, err := os.Stat(path); err == nil {
+		return !fi.IsDir()
+	}
+	return false
+}
+
+func pathExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }

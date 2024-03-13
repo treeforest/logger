@@ -8,7 +8,7 @@ import (
 const (
 	defaultFlushInterval   = time.Second
 	defaultRotationTime    = 1    // 1 hour
-	defaultRotationSize    = 8    // 8 Mb
+	defaultRotationSize    = 128  // 128 Mb
 	defaultFileBufferBytes = 8192 // 8 KB
 )
 
@@ -66,6 +66,9 @@ func WithRotationTime(rotationTime int) Option {
 
 func WithRotationSize(rotationSizeInMb int64) Option {
 	return func(c *LogConfig) {
+		if rotationSizeInMb <= 0 {
+			return
+		}
 		c.RotationSize = rotationSizeInMb * 1024 * 1024
 	}
 }
@@ -91,5 +94,11 @@ func WithFileBufferBytes(fileBufferBytes int) Option {
 			return
 		}
 		c.FileBufferBytes = fileBufferBytes
+	}
+}
+
+func WithLogPath(path string) Option {
+	return func(c *LogConfig) {
+		c.LogPath = path
 	}
 }

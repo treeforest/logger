@@ -15,7 +15,7 @@ func TestFileLogger(t *testing.T) {
 }
 
 func BenchmarkAsyncFileLogger(b *testing.B) {
-	l := NewAsyncFileLogger()
+	l := NewAsyncFileLogger(WithLogPath("./tmp"), WithRotationSize(64))
 	for i := 0; i < b.N; i++ {
 		l.Info("hello world")
 	}
